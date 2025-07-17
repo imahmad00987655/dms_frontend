@@ -62,21 +62,21 @@ A comprehensive financial management system built with React, TypeScript, and No
 - Git
 
 ### Backend Setup
-```bash
-cd backend
-npm install
-```
+   ```bash
+   cd backend
+   npm install
+   ```
 
 ### Frontend Setup
-```bash
-npm install
-```
+   ```bash
+   npm install
+   ```
 
 ### Database Setup
 1. Create a MySQL database
 2. Update database configuration in `backend/config/database.js`
 3. Run the database schema:
-```bash
+   ```bash
 cd backend
 node setup-database.js
 ```

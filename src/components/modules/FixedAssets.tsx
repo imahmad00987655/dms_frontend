@@ -235,33 +235,33 @@ export const FixedAssets = () => {
                   </tr>
                 ) : (
                   filteredAssets.map((asset) => (
-                    <tr key={asset.id} className="border-b hover:bg-gray-50">
-                      <td className="py-3 px-4">
-                        <div>
-                          <div className="font-medium">{asset.name}</div>
+                  <tr key={asset.id} className="border-b hover:bg-gray-50">
+                    <td className="py-3 px-4">
+                      <div>
+                        <div className="font-medium">{asset.name}</div>
                           <div className="text-sm text-gray-500">{asset.asset_id}</div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <Badge variant="outline">{asset.category}</Badge>
-                      </td>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <Badge variant="outline">{asset.category}</Badge>
+                    </td>
                       <td className="py-3 px-4">{asset.purchase_date}</td>
-                      <td className="py-3 px-4 font-semibold">
+                    <td className="py-3 px-4 font-semibold">
                         ${asset.value.toLocaleString()}
-                      </td>
+                    </td>
                       <td className="py-3 px-4 font-semibold text-blue-600">
                         ${(asset.insurance_value || 0).toLocaleString()}
-                      </td>
-                      <td className="py-3 px-4">
-                        <div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div>
                           <div className="text-sm">{asset.depreciation_method}</div>
                           <div className="text-xs text-gray-500">{asset.useful_life} years</div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">{asset.location}</td>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">{asset.location}</td>
                       <td className="py-3 px-4">{getStatusBadge(asset.condition)}</td>
-                      <td className="py-3 px-4">
-                        <div className="flex gap-1">
+                    <td className="py-3 px-4">
+                      <div className="flex gap-1">
                           <Button 
                             size="sm" 
                             variant="outline"
@@ -275,17 +275,17 @@ export const FixedAssets = () => {
                             onClick={() => handleEditAsset(asset)}
                           >
                             <Edit className="w-3 h-3" />
-                          </Button>
+                        </Button>
                           <Button 
                             size="sm" 
                             variant="outline"
                             onClick={() => handleDeleteAsset(asset.id)}
                           >
                             <Trash2 className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
                   ))
                 )}
               </tbody>
