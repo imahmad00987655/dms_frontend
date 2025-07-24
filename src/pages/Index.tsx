@@ -18,6 +18,7 @@ import { PostAccounting } from "@/components/modules/PostAccounting";
 import { ReceiptAccounting } from "@/components/modules/ReceiptAccounting";
 import { Expenses } from "@/components/modules/Expenses";
 import { Reports } from "@/components/modules/Reports";
+import { CustomerSupplierManagement } from "@/components/modules/CustomerSupplierManagement";
 
 const Index = () => {
   const [activeModule, setActiveModule] = useState("dashboard");
@@ -59,6 +60,8 @@ const Index = () => {
         return <PromotionalOffers />;
       case "claims":
         return <ClaimManagement />;
+      case "customer-supplier":
+        return <CustomerSupplierManagement />;
       default:
         return <DashboardContent />;
     }

@@ -218,62 +218,7 @@ class ApiService {
     });
   }
 
-  async createVendorInvoice(data) {
-    return this.request('/vendor-invoices', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  }
 
-  async getVendorInvoices() {
-    return this.request('/vendor-invoices');
-  }
-
-  async getVendorInvoice(id) {
-    return this.request(`/vendor-invoices/${id}`);
-  }
-
-  async updateVendorInvoice(id, data) {
-    return this.request(`/vendor-invoices/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    });
-  }
-
-  async deleteVendorInvoice(id) {
-    return this.request(`/vendor-invoices/${id}`, {
-      method: 'DELETE'
-    });
-  }
-
-  // Payments
-  async getPayments() {
-    return this.request('/payments');
-  }
-
-  async getPayment(id) {
-    return this.request(`/payments/${id}`);
-  }
-
-  async createPayment(data) {
-    return this.request('/payments', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  }
-
-  async updatePayment(id, data) {
-    return this.request(`/payments/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    });
-  }
-
-  async deletePayment(id) {
-    return this.request(`/payments/${id}`, {
-      method: 'DELETE'
-    });
-  }
 
   async getInvoice(id) {
     return this.request(`/invoices/${id}`);
@@ -298,6 +243,298 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify(data)
     });
+  }
+
+  // Update invoice status
+  async updateInvoiceStatus(id, status) {
+    return this.request(`/invoices/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status })
+    });
+  }
+
+  // ============================================================================
+  // NORMALIZED PAYABLES SYSTEM (Oracle E-Business Suite R12 Model)
+  // ============================================================================
+
+  // AP Suppliers
+  async getAPSuppliers() {
+    return this.request('/ap/suppliers');
+  }
+
+  async getAPSupplier(id) {
+    return this.request(`/ap/suppliers/${id}`);
+  }
+
+  async createAPSupplier(data) {
+    return this.request('/ap/suppliers', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateAPSupplier(id, data) {
+    return this.request(`/ap/suppliers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deleteAPSupplier(id) {
+    return this.request(`/ap/suppliers/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  async getAPSupplierSites(supplierId) {
+    return this.request(`/ap/suppliers/${supplierId}/sites`);
+  }
+
+  async createAPSupplierSite(supplierId, data) {
+    return this.request(`/ap/suppliers/${supplierId}/sites`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  // AP Invoices
+  async getAPInvoices(params = {}) {
+    const queryString = new URLSearchParams(params).toString();
+    return this.request(`/ap/invoices${queryString ? `?${queryString}` : ''}`);
+  }
+
+  async getAPInvoice(id) {
+    return this.request(`/ap/invoices/${id}`);
+  }
+
+  async createAPInvoice(data) {
+    return this.request('/ap/invoices', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateAPInvoice(id, data) {
+    return this.request(`/ap/invoices/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateAPInvoiceStatus(id, status, approval_status) {
+    return this.request(`/ap/invoices/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, approval_status })
+    });
+  }
+
+  async deleteAPInvoice(id) {
+    return this.request(`/ap/invoices/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  async getAPInvoiceLines(invoiceId) {
+    return this.request(`/ap/invoices/${invoiceId}/lines`);
+  }
+
+  async getAPInvoicePayments(invoiceId) {
+    return this.request(`/ap/invoices/${invoiceId}/payments`);
+  }
+
+  // AP Payments
+  async getAPPayments(params = {}) {
+    const queryString = new URLSearchParams(params).toString();
+    return this.request(`/ap/payments${queryString ? `?${queryString}` : ''}`);
+  }
+
+  async getAPPayment(id) {
+    return this.request(`/ap/payments/${id}`);
+  }
+
+  async createAPPayment(data) {
+    return this.request('/ap/payments', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateAPPayment(id, data) {
+    return this.request(`/ap/payments/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateAPPaymentStatus(id, status) {
+    return this.request(`/ap/payments/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status })
+    });
+  }
+
+  async deleteAPPayment(id) {
+    return this.request(`/ap/payments/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  async getAPPaymentApplications(paymentId) {
+    return this.request(`/ap/payments/${paymentId}/applications`);
+  }
+
+  async createAPPaymentApplication(paymentId, data) {
+    return this.request(`/ap/payments/${paymentId}/applications`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  // ============================================================================
+  // CUSTOMER/SUPPLIER MANAGEMENT SYSTEM (Oracle Apps R12 Structure)
+  // ============================================================================
+
+  // Party Management
+  async getParties() {
+    return this.request('/customer-supplier/parties');
+  }
+
+  async getParty(id) {
+    return this.request(`/customer-supplier/parties/${id}`);
+  }
+
+  async createParty(partyData) {
+    return this.request('/customer-supplier/parties', {
+      method: 'POST',
+      body: JSON.stringify(partyData)
+    });
+  }
+
+  async updateParty(id, partyData) {
+    return this.request(`/customer-supplier/parties/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(partyData)
+    });
+  }
+
+  async deleteParty(id) {
+    return this.request(`/customer-supplier/parties/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Party Sites Management
+  async getPartySites(partyId) {
+    return this.request(`/customer-supplier/parties/${partyId}/sites`);
+  }
+
+  async createPartySite(partyId, siteData) {
+    return this.request(`/customer-supplier/parties/${partyId}/sites`, {
+      method: 'POST',
+      body: JSON.stringify(siteData)
+    });
+  }
+
+  async updatePartySite(siteId, siteData) {
+    return this.request(`/customer-supplier/sites/${siteId}`, {
+      method: 'PUT',
+      body: JSON.stringify(siteData)
+    });
+  }
+
+  async deletePartySite(siteId) {
+    return this.request(`/customer-supplier/sites/${siteId}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Customer Profiles Management
+  async getCustomers() {
+    return this.request('/customer-supplier/customers');
+  }
+
+  async getCustomer(id) {
+    return this.request(`/customer-supplier/customers/${id}`);
+  }
+
+  async createCustomer(customerData) {
+    return this.request('/customer-supplier/customers', {
+      method: 'POST',
+      body: JSON.stringify(customerData)
+    });
+  }
+
+  async updateCustomer(id, customerData) {
+    return this.request(`/customer-supplier/customers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(customerData)
+    });
+  }
+
+  async deleteCustomer(id) {
+    return this.request(`/customer-supplier/customers/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Supplier Profiles Management
+  async getSuppliers() {
+    return this.request('/customer-supplier/suppliers');
+  }
+
+  async getSupplier(id) {
+    return this.request(`/customer-supplier/suppliers/${id}`);
+  }
+
+  async createSupplier(supplierData) {
+    return this.request('/customer-supplier/suppliers', {
+      method: 'POST',
+      body: JSON.stringify(supplierData)
+    });
+  }
+
+  async updateSupplier(id, supplierData) {
+    return this.request(`/customer-supplier/suppliers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(supplierData)
+    });
+  }
+
+  async deleteSupplier(id) {
+    return this.request(`/customer-supplier/suppliers/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Contact Points Management
+  async getPartyContacts(partyId) {
+    return this.request(`/customer-supplier/parties/${partyId}/contacts`);
+  }
+
+  async createContactPoint(partyId, contactData) {
+    return this.request(`/customer-supplier/parties/${partyId}/contacts`, {
+      method: 'POST',
+      body: JSON.stringify(contactData)
+    });
+  }
+
+  async updateContactPoint(contactPointId, contactData) {
+    return this.request(`/customer-supplier/contacts/${contactPointId}`, {
+      method: 'PUT',
+      body: JSON.stringify(contactData)
+    });
+  }
+
+  async deleteContactPoint(contactPointId) {
+    return this.request(`/customer-supplier/contacts/${contactPointId}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Search and Filter
+  async searchParties(params = {}) {
+    const queryParams = new URLSearchParams(params);
+    return this.request(`/customer-supplier/search/parties?${queryParams}`);
   }
 }
 

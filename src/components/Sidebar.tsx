@@ -175,6 +175,13 @@ export const Sidebar = ({ activeModule, setActiveModule, isCollapsed, setIsColla
       icon: AlertTriangle,
       description: "Claim Management",
       color: "text-amber-600"
+    },
+    {
+      id: "customer-supplier",
+      label: "Customer/Supplier",
+      icon: Users,
+      description: "Party Management",
+      color: "text-emerald-500"
     }
   ];
 

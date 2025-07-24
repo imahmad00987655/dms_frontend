@@ -13,8 +13,10 @@ import assetRoutes from './routes/assets.js';
 import invoiceRoutes from './routes/invoices.js';
 import customerRoutes from './routes/customers.js';
 import receiptsRoutes from './routes/receipts.js';
-import vendorInvoicesRoutes from './routes/vendorInvoices.js';
-import paymentsRoutes from './routes/payments.js';
+import apSuppliersRoutes from './routes/apSuppliers.js';
+import apInvoicesRoutes from './routes/apInvoices.js';
+import apPaymentsRoutes from './routes/apPayments.js';
+import customerSupplierRoutes from './routes/customerSupplier.js';
 
 // Load environment variables
 dotenv.config();
@@ -43,7 +45,7 @@ app.use(cors({
     'http://localhost:3000'
   ],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
@@ -91,8 +93,15 @@ app.use('/api/assets', assetRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/receipts', receiptsRoutes);
-app.use('/api/vendor-invoices', vendorInvoicesRoutes);
-app.use('/api/payments', paymentsRoutes);
+
+
+// Normalized Payables System Routes (Oracle E-Business Suite R12 Model)
+app.use('/api/ap/suppliers', apSuppliersRoutes);
+app.use('/api/ap/invoices', apInvoicesRoutes);
+app.use('/api/ap/payments', apPaymentsRoutes);
+
+// Customer/Supplier Management System Routes (Oracle Apps R12 Structure)
+app.use('/api/customer-supplier', customerSupplierRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

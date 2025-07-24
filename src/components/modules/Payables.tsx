@@ -11,79 +11,110 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DollarSign, AlertTriangle, Search, Filter, Download } from "lucide-react";
-import { PaymentForm } from "@/components/forms/PaymentForm";
+import { APPaymentForm } from "@/components/forms/APPaymentForm";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileText } from "lucide-react";
-import { VendorInvoiceForm } from "@/components/forms/VendorInvoiceForm";
+import { APInvoiceForm } from "@/components/forms/APInvoiceForm";
 import apiService from "@/services/api";
 import { toast } from "sonner";
 import * as XLSX from 'xlsx';
 
-interface LineItem {
-  description: string;
+interface APInvoiceLine {
+  line_id: number;
+  invoice_id: number;
+  line_number: number;
+  item_code?: string;
+  item_name: string;
+  description?: string;
   quantity: number;
   unit_price: number;
-  amount: number;
+  line_amount: number;
+  tax_rate: number;
+  tax_amount: number;
+  total_line_amount: number;
 }
 
-interface VendorInvoice {
-  id: number;
+interface APInvoice {
+  invoice_id: number;
   invoice_number: string;
-  vendor_name: string;
-  vendor_id?: string;
+  supplier_id: number;
+  supplier_name: string;
+  bill_to_site_id: number;
+  bill_to_site_name: string;
   invoice_date: string;
-  due_date?: string;
-  payment_terms: number;
+  due_date: string;
+  payment_terms_id: number;
+  currency_code: string;
+  exchange_rate: number;
   subtotal: number;
   tax_amount: number;
-  total: number;
-  currency: string;
-  status: 'draft' | 'pending' | 'paid' | 'overdue' | 'cancelled';
+  total_amount: number;
+  amount_paid: number;
+  amount_due: number;
+  approval_status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  status: 'DRAFT' | 'OPEN' | 'PAID' | 'CANCELLED' | 'VOID';
   notes?: string;
-  line_items: LineItem[];
+  created_by: number;
   created_at: string;
   updated_at: string;
+  lines?: APInvoiceLine[];
 }
 
-interface Payment {
-  id: number;
+interface APPayment {
+  payment_id: number;
   payment_number: string;
+  supplier_id: number;
+  supplier_name: string;
   payment_date: string;
-  vendor_name: string;
-  vendor_id?: string;
-  invoice_number?: string;
-  amount_paid: number;
-  currency: string;
+  currency_code: string;
+  exchange_rate: number;
+  payment_amount: number;
+  amount_applied: number;
+  unapplied_amount: number;
   payment_method?: string;
   bank_account?: string;
   reference_number?: string;
-  status: 'pending' | 'processed' | 'failed' | 'cancelled';
-  description?: string;
+  status: 'DRAFT' | 'APPROVED' | 'PROCESSED' | 'CANCELLED' | 'VOID';
   notes?: string;
+  created_by: number;
   created_at: string;
   updated_at: string;
+}
+
+interface APSupplier {
+  supplier_id: number;
+  supplier_number: string;
+  supplier_name: string;
+  supplier_type: 'VENDOR' | 'CONTRACTOR' | 'SERVICE_PROVIDER';
+  tax_id?: string;
+  payment_terms_id: number;
+  currency_code: string;
+  credit_limit: number;
+  hold_flag: boolean;
+  status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
 }
 
 export const Payables = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showPaymentForm, setShowPaymentForm] = useState(false);
-  const [selectedPayable, setSelectedPayable] = useState<VendorInvoice | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<APInvoice | null>(null);
   const [showInvoiceForm, setShowInvoiceForm] = useState(false);
-  const [vendorInvoices, setVendorInvoices] = useState<VendorInvoice[]>([]);
+  const [invoices, setInvoices] = useState<APInvoice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [payments, setPayments] = useState<Payment[]>([]);
+  const [payments, setPayments] = useState<APPayment[]>([]);
   const [loadingPayments, setLoadingPayments] = useState(true);
+  const [suppliers, setSuppliers] = useState<APSupplier[]>([]);
 
-  // Fetch vendor invoices from backend
-  const fetchVendorInvoices = async () => {
+  // Fetch invoices from backend
+  const fetchInvoices = async () => {
     try {
       setLoading(true);
-      const data = await apiService.getVendorInvoices();
-      setVendorInvoices(data);
+      const data = await apiService.getAPInvoices();
+      setInvoices(data);
     } catch (error) {
-      console.error('Error fetching vendor invoices:', error);
-      toast.error('Failed to fetch vendor invoices');
+      console.error('Error fetching invoices:', error);
+      toast.error('Failed to fetch invoices');
     } finally {
       setLoading(false);
     }
@@ -93,7 +124,7 @@ export const Payables = () => {
   const fetchPayments = async () => {
     try {
       setLoadingPayments(true);
-      const data = await apiService.getPayments();
+      const data = await apiService.getAPPayments();
       setPayments(data);
     } catch (error) {
       console.error('Error fetching payments:', error);
@@ -103,59 +134,73 @@ export const Payables = () => {
     }
   };
 
+  // Fetch suppliers from backend
+  const fetchSuppliers = async () => {
+    try {
+      const data = await apiService.getAPSuppliers();
+      setSuppliers(data);
+    } catch (error) {
+      console.error('Error fetching suppliers:', error);
+      toast.error('Failed to fetch suppliers');
+    }
+  };
+
   useEffect(() => {
-    fetchVendorInvoices();
+    fetchInvoices();
     fetchPayments();
+    fetchSuppliers();
   }, []);
 
-  const handleCreatePayment = (payable: VendorInvoice) => {
-    setSelectedPayable(payable);
+  const handleCreatePayment = (invoice: APInvoice) => {
+    setSelectedInvoice(invoice);
     setShowPaymentForm(true);
   };
 
   const closePaymentForm = () => {
     setShowPaymentForm(false);
-    setSelectedPayable(null);
+    setSelectedInvoice(null);
   };
 
   const handleInvoiceCreated = () => {
     setShowInvoiceForm(false);
-    fetchVendorInvoices(); // Refresh the list
-    toast.success('Vendor invoice created successfully');
+    fetchInvoices(); // Refresh the list
+    toast.success('Invoice created successfully');
   };
 
   const handlePaymentCreated = () => {
     setShowPaymentForm(false);
     fetchPayments(); // Refresh the payments list
+    fetchInvoices(); // Refresh invoices to update amounts
     toast.success('Payment created successfully');
   };
 
-  const handleExportVendorInvoices = () => {
-    // Prepare vendor invoice data for export
-    const exportData = vendorInvoices.map(inv => ({
+  const handleExportInvoices = () => {
+    // Prepare invoice data for export
+    const exportData = invoices.map(inv => ({
       'Invoice Number': inv.invoice_number,
-      'Vendor Name': inv.vendor_name,
-      'Vendor ID': inv.vendor_id || '',
+      'Supplier Name': inv.supplier_name,
       'Invoice Date': inv.invoice_date,
-      'Due Date': inv.due_date || '',
-      'Payment Terms': inv.payment_terms,
+      'Due Date': inv.due_date,
+      'Payment Terms': inv.payment_terms_id,
       'Subtotal': inv.subtotal,
       'Tax Amount': inv.tax_amount,
-      'Total': inv.total,
-      'Currency': inv.currency,
+      'Total Amount': inv.total_amount,
+      'Amount Paid': inv.amount_paid,
+      'Amount Due': inv.amount_due,
+      'Currency': inv.currency_code,
+      'Approval Status': inv.approval_status,
       'Status': inv.status,
       'Notes': inv.notes || '',
-      'Line Items Count': inv.line_items.length,
       'Created At': inv.created_at,
       'Updated At': inv.updated_at
     }));
     
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Vendor Invoices');
-    XLSX.writeFile(workbook, 'vendor-invoices.xlsx');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'AP Invoices');
+    XLSX.writeFile(workbook, 'ap-invoices.xlsx');
     
-    toast.success('Vendor invoices exported successfully');
+    toast.success('Invoices exported successfully');
   };
 
   const handleExportPayments = () => {
@@ -163,16 +208,15 @@ export const Payables = () => {
     const exportData = payments.map(payment => ({
       'Payment Number': payment.payment_number,
       'Payment Date': payment.payment_date,
-      'Vendor Name': payment.vendor_name,
-      'Vendor ID': payment.vendor_id || '',
-      'Invoice Number': payment.invoice_number || '',
-      'Amount Paid': payment.amount_paid,
-      'Currency': payment.currency,
+      'Supplier Name': payment.supplier_name,
+      'Payment Amount': payment.payment_amount,
+      'Amount Applied': payment.amount_applied,
+      'Unapplied Amount': payment.unapplied_amount,
+      'Currency': payment.currency_code,
       'Payment Method': payment.payment_method || '',
       'Bank Account': payment.bank_account || '',
       'Reference Number': payment.reference_number || '',
       'Status': payment.status,
-      'Description': payment.description || '',
       'Notes': payment.notes || '',
       'Created At': payment.created_at,
       'Updated At': payment.updated_at
@@ -180,28 +224,28 @@ export const Payables = () => {
     
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Payments');
-    XLSX.writeFile(workbook, 'payments.xlsx');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'AP Payments');
+    XLSX.writeFile(workbook, 'ap-payments.xlsx');
     
     toast.success('Payments exported successfully');
   };
 
-  const filteredVendorInvoices = vendorInvoices.filter(item => {
-    const matchesSearch = (item.vendor_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  const filteredInvoices = invoices.filter(item => {
+    const matchesSearch = (item.supplier_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.invoice_number?.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesStatus = statusFilter === "all" || item.status === statusFilter;
+    const matchesStatus = statusFilter === "all" || item.status.toLowerCase() === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  const totalPayables = vendorInvoices.filter(p => p.status !== "paid").reduce((sum, p) => sum + p.total, 0);
-  const overduePayables = vendorInvoices.filter(p => p.status === "overdue").reduce((sum, p) => sum + p.total, 0);
-  const pendingCount = vendorInvoices.filter(p => p.status === "pending").length;
+  const totalPayables = invoices.filter(p => p.status !== "PAID").reduce((sum, p) => sum + p.amount_due, 0);
+  const overduePayables = invoices.filter(p => p.status === "OPEN" && new Date(p.due_date) < new Date()).reduce((sum, p) => sum + p.amount_due, 0);
+  const pendingCount = invoices.filter(p => p.status === "OPEN").length;
 
   if (showPaymentForm) {
-    return <PaymentForm onClose={closePaymentForm} selectedPayable={selectedPayable} onSuccess={handlePaymentCreated} />;
+    return <APPaymentForm onClose={closePaymentForm} selectedInvoice={selectedInvoice} onSuccess={handlePaymentCreated} />;
   }
   if (showInvoiceForm) {
-    return <VendorInvoiceForm onClose={() => setShowInvoiceForm(false)} onSuccess={handleInvoiceCreated} />;
+    return <APInvoiceForm onClose={() => setShowInvoiceForm(false)} onSuccess={handleInvoiceCreated} suppliers={suppliers} />;
   }
 
   return (
@@ -209,7 +253,7 @@ export const Payables = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Accounts Payable</h1>
-          <p className="text-gray-500 mt-1">Manage invoices and payments to vendors</p>
+          <p className="text-gray-500 mt-1">Manage invoices and payments to suppliers</p>
         </div>
       </div>
       
@@ -217,12 +261,12 @@ export const Payables = () => {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Payables</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Outstanding</CardTitle>
             <DollarSign className="w-4 h-4 text-gray-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">${totalPayables.toLocaleString()}</div>
-            <p className="text-xs text-gray-500 mt-1">Across {filteredVendorInvoices.filter(p => p.status !== "paid").length} invoices</p>
+            <p className="text-xs text-gray-500 mt-1">Across {filteredInvoices.filter(p => p.status !== "PAID").length} invoices</p>
           </CardContent>
         </Card>
         <Card>
@@ -237,7 +281,7 @@ export const Payables = () => {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending Payments</CardTitle>
+            <CardTitle className="text-sm font-medium">Open Invoices</CardTitle>
             <DollarSign className="w-4 h-4 text-gray-600" />
           </CardHeader>
           <CardContent>
@@ -247,12 +291,12 @@ export const Payables = () => {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg. Days to Payment</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Payments</CardTitle>
             <DollarSign className="w-4 h-4 text-gray-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">30</div>
-            <p className="text-xs text-green-500 mt-1">On track</p>
+            <div className="text-2xl font-bold text-blue-600">{payments.length}</div>
+            <p className="text-xs text-green-500 mt-1">Processed this period</p>
           </CardContent>
         </Card>
       </div>
@@ -261,18 +305,18 @@ export const Payables = () => {
         <TabsList>
           <TabsTrigger value="invoice" className="flex items-center gap-2">
             <FileText className="w-4 h-4" />
-            Invoice
+            Invoices
           </TabsTrigger>
           <TabsTrigger value="payment" className="flex items-center gap-2">
             <DollarSign className="w-4 h-4" />
-            Payment
+            Payments
           </TabsTrigger>
         </TabsList>
         <TabsContent value="invoice">
           <div className="flex justify-end mb-4 gap-2">
             <Button 
               variant="outline" 
-              onClick={handleExportVendorInvoices}
+              onClick={handleExportInvoices}
               className="flex items-center gap-2"
             >
               <Download className="w-4 h-4" />
@@ -290,7 +334,7 @@ export const Payables = () => {
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <Input
-                    placeholder="Search invoices or vendors..."
+                    placeholder="Search invoices or suppliers..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-10"
@@ -305,10 +349,10 @@ export const Payables = () => {
                     <SelectContent>
                       <SelectItem value="all">All Status</SelectItem>
                       <SelectItem value="draft">Draft</SelectItem>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="overdue">Overdue</SelectItem>
+                      <SelectItem value="open">Open</SelectItem>
                       <SelectItem value="paid">Paid</SelectItem>
                       <SelectItem value="cancelled">Cancelled</SelectItem>
+                      <SelectItem value="void">Void</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -316,18 +360,18 @@ export const Payables = () => {
             </CardHeader>
             <CardContent>
               <div className="mb-4">
-                <h3 className="text-lg font-semibold">Vendor Invoices</h3>
+                <h3 className="text-lg font-semibold">AP Invoices</h3>
                 <p className="text-sm text-gray-500">
-                  Showing {filteredVendorInvoices.length} of {vendorInvoices.length} invoices
+                  Showing {filteredInvoices.length} of {invoices.length} invoices
                 </p>
               </div>
               {loading ? (
                 <div className="text-center py-8">
-                  <div className="text-gray-500">Loading vendor invoices...</div>
+                  <div className="text-gray-500">Loading invoices...</div>
                 </div>
-              ) : vendorInvoices.length === 0 ? (
+              ) : invoices.length === 0 ? (
                 <div className="text-center py-8">
-                  <div className="text-gray-500">No vendor invoices found</div>
+                  <div className="text-gray-500">No invoices found</div>
                   <Button 
                     onClick={() => setShowInvoiceForm(true)} 
                     className="mt-4"
@@ -336,7 +380,7 @@ export const Payables = () => {
                     Create your first invoice
                   </Button>
                 </div>
-              ) : filteredVendorInvoices.length === 0 ? (
+              ) : filteredInvoices.length === 0 ? (
                 <div className="text-center py-8">
                   <div className="text-gray-500">No invoices match your search criteria</div>
                   <Button 
@@ -356,20 +400,22 @@ export const Payables = () => {
                     <thead>
                       <tr className="border-b">
                         <th className="text-left py-3 px-4 font-semibold">Invoice #</th>
-                        <th className="text-left py-3 px-4 font-semibold">Vendor</th>
+                        <th className="text-left py-3 px-4 font-semibold">Supplier</th>
                         <th className="text-left py-3 px-4 font-semibold">Invoice Date</th>
                         <th className="text-left py-3 px-4 font-semibold">Due Date</th>
-                        <th className="text-left py-3 px-4 font-semibold">Amount</th>
+                        <th className="text-left py-3 px-4 font-semibold">Total Amount</th>
+                        <th className="text-left py-3 px-4 font-semibold">Amount Due</th>
                         <th className="text-left py-3 px-4 font-semibold">Status</th>
+                        <th className="text-left py-3 px-4 font-semibold">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredVendorInvoices.map((invoice) => (
-                        <tr key={invoice.id} className="border-b hover:bg-gray-50">
+                      {filteredInvoices.map((invoice) => (
+                        <tr key={invoice.invoice_id} className="border-b hover:bg-gray-50">
                           <td className="py-3 px-4 font-medium">{invoice.invoice_number}</td>
                           <td className="py-3 px-4">
                             <div>
-                              <div className="font-medium">{invoice.vendor_name}</div>
+                              <div className="font-medium">{invoice.supplier_name}</div>
                               {invoice.notes && (
                                 <div className="text-sm text-gray-500">{invoice.notes}</div>
                               )}
@@ -380,17 +426,31 @@ export const Payables = () => {
                             {invoice.due_date ? new Date(invoice.due_date).toLocaleDateString() : '-'}
                           </td>
                           <td className="py-3 px-4 font-semibold">
-                            ${invoice.total.toLocaleString()} {invoice.currency}
+                            ${invoice.total_amount.toLocaleString()} {invoice.currency_code}
+                          </td>
+                          <td className="py-3 px-4 font-semibold">
+                            ${invoice.amount_due.toLocaleString()} {invoice.currency_code}
                           </td>
                           <td className="py-3 px-4">
                             <Badge variant={
-                              invoice.status === "paid" ? "default" :
-                              invoice.status === "overdue" ? "destructive" :
-                              invoice.status === "pending" ? "secondary" :
-                              invoice.status === "draft" ? "outline" : "secondary"
+                              invoice.status === "PAID" ? "default" :
+                              invoice.status === "OPEN" && new Date(invoice.due_date) < new Date() ? "destructive" :
+                              invoice.status === "OPEN" ? "secondary" :
+                              invoice.status === "DRAFT" ? "outline" : "secondary"
                             }>
                               {invoice.status}
                             </Badge>
+                          </td>
+                          <td className="py-3 px-4">
+                            {invoice.status === "OPEN" && invoice.amount_due > 0 && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleCreatePayment(invoice)}
+                                className="mr-2"
+                              >
+                                Pay
+                              </Button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -421,7 +481,7 @@ export const Payables = () => {
           </div>
           <Card>
             <CardHeader>
-              <CardTitle>Payments</CardTitle>
+              <CardTitle>AP Payments</CardTitle>
             </CardHeader>
             <CardContent>
               {loadingPayments ? (
@@ -446,42 +506,42 @@ export const Payables = () => {
                       <tr className="border-b">
                         <th className="text-left py-3 px-4 font-semibold">Payment #</th>
                         <th className="text-left py-3 px-4 font-semibold">Date</th>
-                        <th className="text-left py-3 px-4 font-semibold">Vendor</th>
-                        <th className="text-left py-3 px-4 font-semibold">Invoice #</th>
-                        <th className="text-right py-3 px-4 font-semibold">Amount</th>
+                        <th className="text-left py-3 px-4 font-semibold">Supplier</th>
+                        <th className="text-right py-3 px-4 font-semibold">Payment Amount</th>
+                        <th className="text-right py-3 px-4 font-semibold">Applied</th>
+                        <th className="text-right py-3 px-4 font-semibold">Unapplied</th>
                         <th className="text-left py-3 px-4 font-semibold">Currency</th>
                         <th className="text-left py-3 px-4 font-semibold">Payment Method</th>
-                        <th className="text-left py-3 px-4 font-semibold">Bank Account</th>
-                        <th className="text-left py-3 px-4 font-semibold">Reference</th>
                         <th className="text-left py-3 px-4 font-semibold">Status</th>
-                        <th className="text-left py-3 px-4 font-semibold">Description</th>
                       </tr>
                     </thead>
                     <tbody>
                       {payments.map((payment) => (
-                        <tr key={payment.id} className="border-b hover:bg-gray-50">
+                        <tr key={payment.payment_id} className="border-b hover:bg-gray-50">
                           <td className="py-3 px-4 font-medium">{payment.payment_number}</td>
                           <td className="py-3 px-4">{new Date(payment.payment_date).toLocaleDateString()}</td>
-                          <td className="py-3 px-4">{payment.vendor_name}</td>
-                          <td className="py-3 px-4">{payment.invoice_number || '-'}</td>
+                          <td className="py-3 px-4">{payment.supplier_name}</td>
                           <td className="py-3 px-4 text-right font-semibold">
-                            ${payment.amount_paid.toLocaleString()} {payment.currency}
+                            ${payment.payment_amount.toLocaleString()} {payment.currency_code}
                           </td>
-                          <td className="py-3 px-4">{payment.currency}</td>
+                          <td className="py-3 px-4 text-right font-semibold">
+                            ${payment.amount_applied.toLocaleString()} {payment.currency_code}
+                          </td>
+                          <td className="py-3 px-4 text-right font-semibold">
+                            ${payment.unapplied_amount.toLocaleString()} {payment.currency_code}
+                          </td>
+                          <td className="py-3 px-4">{payment.currency_code}</td>
                           <td className="py-3 px-4">{payment.payment_method || '-'}</td>
-                          <td className="py-3 px-4">{payment.bank_account || '-'}</td>
-                          <td className="py-3 px-4">{payment.reference_number || '-'}</td>
                           <td className="py-3 px-4">
                             <Badge variant={
-                              payment.status === "processed" ? "default" :
-                              payment.status === "pending" ? "secondary" :
-                              payment.status === "failed" ? "destructive" :
-                              payment.status === "cancelled" ? "outline" : "secondary"
+                              payment.status === "PROCESSED" ? "default" :
+                              payment.status === "APPROVED" ? "secondary" :
+                              payment.status === "DRAFT" ? "outline" :
+                              payment.status === "CANCELLED" ? "destructive" : "secondary"
                             }>
                               {payment.status}
                             </Badge>
                           </td>
-                          <td className="py-3 px-4">{payment.description || '-'}</td>
                         </tr>
                       ))}
                     </tbody>

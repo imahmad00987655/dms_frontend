@@ -7,38 +7,47 @@ import { ReceiptFormFields } from "./receipt/ReceiptFormFields";
 import type { ReceiptFormData } from "./receipt/ReceiptFormFields";
 
 interface Invoice {
-  id: number;
+  invoice_id: number;
   invoice_number: string;
   customer_name: string;
-  customer_email?: string;
-  total: number;
+  customer_number: string;
+  total_amount: string | number;
+  amount_paid: string | number;
+  amount_due: string | number;
   due_date: string;
   status: string;
   invoice_date: string;
   notes?: string;
-  payment_terms: number;
+  payment_terms_id: number;
 }
 
 interface ReceiptFormProps {
   onClose: () => void;
   selectedReceivable?: Invoice | null;
   onSubmit?: (data: ReceiptFormData) => void;
+  receiptToView?: ReceiptFormData | null;
+  mode?: 'create' | 'view';
 }
 
-export const ReceiptForm = ({ onClose, selectedReceivable, onSubmit }: ReceiptFormProps) => {
-  const [formData, setFormData] = useState({
+export const ReceiptForm = ({ onClose, selectedReceivable, onSubmit, receiptToView, mode = 'create' }: ReceiptFormProps) => {
+  const [formData, setFormData] = useState(() => {
+    if (mode === 'view' && receiptToView) {
+      return receiptToView;
+    }
+    return {
     receiptNumber: `RCP-${Date.now()}`,
     receiptDate: new Date().toISOString().split('T')[0],
     customer: selectedReceivable?.customer_name || "",
-    invoiceNumber: selectedReceivable?.invoice_number || selectedReceivable?.id?.toString() || "",
-    amount: selectedReceivable?.total ? String(selectedReceivable.total) : "",
+    invoiceNumber: selectedReceivable?.invoice_number || "",
+    amount: selectedReceivable?.amount_due ? String(Number(selectedReceivable.amount_due || 0)) : "",
     paymentMethod: "",
     bankAccount: "",
     checkNumber: "",
     reference: "",
-    description: `Payment received for ${selectedReceivable?.invoice_number || selectedReceivable?.id || 'invoice'}`,
+    description: `Payment received for ${selectedReceivable?.invoice_number || 'invoice'}`,
     currency: "USD",
-    status: "processed"
+    status: "CONFIRMED"
+    };
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -67,10 +76,21 @@ export const ReceiptForm = ({ onClose, selectedReceivable, onSubmit }: ReceiptFo
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-        <ReceiptFormHeader onClose={onClose} />
+        <ReceiptFormHeader onClose={onClose} mode={mode} />
         <CardContent>
+          {mode === 'view' ? (
+            <div className="space-y-4">
+              <ReceiptFormFields formData={formData} setFormData={setFormData} mode={mode} />
+              
+              <div className="flex gap-2 pt-4">
+                <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+                  Close
+                </Button>
+              </div>
+            </div>
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <ReceiptFormFields formData={formData} setFormData={setFormData} />
+              <ReceiptFormFields formData={formData} setFormData={setFormData} mode={mode} />
             
             <div className="flex gap-2 pt-4">
               <Button type="submit" className="flex-1">
@@ -82,6 +102,7 @@ export const ReceiptForm = ({ onClose, selectedReceivable, onSubmit }: ReceiptFo
               </Button>
             </div>
           </form>
+          )}
         </CardContent>
       </Card>
     </div>
