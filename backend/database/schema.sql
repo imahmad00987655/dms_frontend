@@ -812,3 +812,638 @@ INSERT INTO ar_sequences (sequence_name, current_value) VALUES
 ('HZ_CLASSIFICATION_ID_SEQ', 1),
 ('HZ_NOTE_ID_SEQ', 1)
 ON DUPLICATE KEY UPDATE current_value = current_value;
+-- ============================================================================
+-- PROCUREMENT SYSTEM (Oracle E-Business Suite R12 Model)
+-- ============================================================================
+
+-- Insert procurement sequences
+INSERT INTO ar_sequences (sequence_name, current_value) VALUES
+('PO_AGREEMENT_ID_SEQ', 1),
+('PO_REQUISITION_ID_SEQ', 1),
+('PO_HEADER_ID_SEQ', 1),
+('PO_LINE_ID_SEQ', 1),
+('PO_DISTRIBUTION_ID_SEQ', 1),
+('PO_RECEIPT_ID_SEQ', 1),
+('PO_RECEIPT_LINE_ID_SEQ', 1),
+('PO_APPROVAL_ID_SEQ', 1)
+ON DUPLICATE KEY UPDATE current_value = current_value;
+
+-- Purchase Agreements (PO_AGREEMENTS)
+CREATE TABLE IF NOT EXISTS po_agreements (
+    agreement_id BIGINT PRIMARY KEY,
+    agreement_number VARCHAR(50) UNIQUE NOT NULL,
+    agreement_type ENUM('BLANKET', 'CONTRACT', 'MASTER') DEFAULT 'BLANKET',
+    supplier_id BIGINT NOT NULL,
+    supplier_site_id BIGINT NOT NULL,
+    buyer_id INT NOT NULL,
+    agreement_date DATE NOT NULL,
+    effective_start_date DATE NOT NULL,
+    effective_end_date DATE NOT NULL,
+    currency_code VARCHAR(10) DEFAULT 'USD',
+    exchange_rate DECIMAL(10,6) DEFAULT 1.000000,
+    total_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    amount_used DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    amount_remaining DECIMAL(15,2) GENERATED ALWAYS AS (total_amount - amount_used) STORED,
+    payment_terms_id INT DEFAULT 30,
+    status ENUM('DRAFT', 'ACTIVE', 'EXPIRED', 'CANCELLED', 'CLOSED') DEFAULT 'DRAFT',
+    approval_status ENUM('PENDING', 'APPROVED', 'REJECTED') DEFAULT 'PENDING',
+    description TEXT,
+    notes TEXT,
+    created_by INT NOT NULL,
+    approved_by INT NULL,
+    approved_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (supplier_id) REFERENCES ap_suppliers(supplier_id) ON DELETE RESTRICT,
+    FOREIGN KEY (supplier_site_id) REFERENCES ap_supplier_sites(site_id) ON DELETE RESTRICT,
+    FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE RESTRICT,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_agreement_number (agreement_number),
+    INDEX idx_supplier_id (supplier_id),
+    INDEX idx_supplier_site_id (supplier_site_id),
+    INDEX idx_buyer_id (buyer_id),
+    INDEX idx_agreement_date (agreement_date),
+    INDEX idx_effective_start_date (effective_start_date),
+    INDEX idx_effective_end_date (effective_end_date),
+    INDEX idx_status (status),
+    INDEX idx_approval_status (approval_status),
+    INDEX idx_amount_remaining (amount_remaining),
+    INDEX idx_created_by (created_by)
+);
+
+-- Agreement Lines (PO_AGREEMENT_LINES)
+CREATE TABLE IF NOT EXISTS po_agreement_lines (
+    line_id BIGINT PRIMARY KEY,
+    agreement_id BIGINT NOT NULL,
+    line_number INT NOT NULL,
+    item_code VARCHAR(50),
+    item_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    category VARCHAR(100),
+    uom VARCHAR(20) DEFAULT 'EACH',
+    quantity DECIMAL(10,2) NOT NULL DEFAULT 1.00,
+    unit_price DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    line_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    min_quantity DECIMAL(10,2) NULL,
+    max_quantity DECIMAL(10,2) NULL,
+    need_by_date DATE,
+    suggested_supplier VARCHAR(255),
+    suggested_supplier_id BIGINT NULL,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (agreement_id) REFERENCES po_agreements(agreement_id) ON DELETE CASCADE,
+    FOREIGN KEY (suggested_supplier_id) REFERENCES ap_suppliers(supplier_id) ON DELETE SET NULL,
+    INDEX idx_agreement_id (agreement_id),
+    INDEX idx_line_number (line_number),
+    INDEX idx_item_code (item_code),
+    INDEX idx_category (category),
+    INDEX idx_need_by_date (need_by_date),
+    INDEX idx_unit_price (unit_price),
+    INDEX idx_line_amount (line_amount)
+);
+
+-- Purchase Requisitions (PO_REQUISITIONS)
+CREATE TABLE IF NOT EXISTS po_requisitions (
+    requisition_id BIGINT PRIMARY KEY,
+    requisition_number VARCHAR(50) UNIQUE NOT NULL,
+    requester_id INT NOT NULL,
+    buyer_id INT NULL,
+    department_id VARCHAR(50),
+    need_by_date DATE NOT NULL,
+    urgency ENUM('LOW', 'MEDIUM', 'HIGH', 'URGENT') DEFAULT 'MEDIUM',
+    currency_code VARCHAR(10) DEFAULT 'USD',
+    exchange_rate DECIMAL(10,6) DEFAULT 1.000000,
+    total_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    status ENUM('DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'CANCELLED', 'CLOSED') DEFAULT 'DRAFT',
+    approval_status ENUM('PENDING', 'APPROVED', 'REJECTED') DEFAULT 'PENDING',
+    description TEXT,
+    justification TEXT,
+    notes TEXT,
+    created_by INT NOT NULL,
+    approved_by INT NULL,
+    approved_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE RESTRICT,
+    FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_requisition_number (requisition_number),
+    INDEX idx_requester_id (requester_id),
+    INDEX idx_buyer_id (buyer_id),
+    INDEX idx_need_by_date (need_by_date),
+    INDEX idx_urgency (urgency),
+    INDEX idx_status (status),
+    INDEX idx_approval_status (approval_status),
+    INDEX idx_total_amount (total_amount),
+    INDEX idx_created_by (created_by)
+);
+
+-- Requisition Lines (PO_REQUISITION_LINES)
+CREATE TABLE IF NOT EXISTS po_requisition_lines (
+    line_id BIGINT PRIMARY KEY,
+    requisition_id BIGINT NOT NULL,
+    line_number INT NOT NULL,
+    item_code VARCHAR(50),
+    item_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    category VARCHAR(100),
+    uom VARCHAR(20) DEFAULT 'EACH',
+    quantity DECIMAL(10,2) NOT NULL DEFAULT 1.00,
+    unit_price DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    line_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    need_by_date DATE,
+    suggested_supplier VARCHAR(255),
+    suggested_supplier_id BIGINT NULL,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (requisition_id) REFERENCES po_requisitions(requisition_id) ON DELETE CASCADE,
+    FOREIGN KEY (suggested_supplier_id) REFERENCES ap_suppliers(supplier_id) ON DELETE SET NULL,
+    INDEX idx_requisition_id (requisition_id),
+    INDEX idx_line_number (line_number),
+    INDEX idx_item_code (item_code),
+    INDEX idx_category (category),
+    INDEX idx_need_by_date (need_by_date),
+    INDEX idx_suggested_supplier_id (suggested_supplier_id),
+    UNIQUE KEY uk_requisition_line (requisition_id, line_number)
+);
+
+-- Purchase Orders (PO_HEADERS)
+CREATE TABLE IF NOT EXISTS po_headers (
+    header_id BIGINT PRIMARY KEY,
+    po_number VARCHAR(50) UNIQUE NOT NULL,
+    po_type ENUM('STANDARD', 'BLANKET_RELEASE', 'CONTRACT_RELEASE') DEFAULT 'STANDARD',
+    supplier_id BIGINT NOT NULL,
+    supplier_site_id BIGINT NOT NULL,
+    buyer_id INT NOT NULL,
+    requisition_id BIGINT NULL,
+    agreement_id BIGINT NULL,
+    po_date DATE NOT NULL,
+    need_by_date DATE NOT NULL,
+    currency_code VARCHAR(10) DEFAULT 'USD',
+    exchange_rate DECIMAL(10,6) DEFAULT 1.000000,
+    subtotal DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    tax_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    total_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    amount_received DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    amount_billed DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    amount_remaining DECIMAL(15,2) GENERATED ALWAYS AS (total_amount - amount_received) STORED,
+    payment_terms_id INT DEFAULT 30,
+    status ENUM('DRAFT', 'APPROVED', 'RELEASED', 'RECEIVED', 'CLOSED', 'CANCELLED') DEFAULT 'DRAFT',
+    approval_status ENUM('PENDING', 'APPROVED', 'REJECTED') DEFAULT 'PENDING',
+    description TEXT,
+    notes TEXT,
+    created_by INT NOT NULL,
+    approved_by INT NULL,
+    approved_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (supplier_id) REFERENCES ap_suppliers(supplier_id) ON DELETE RESTRICT,
+    FOREIGN KEY (supplier_site_id) REFERENCES ap_supplier_sites(site_id) ON DELETE RESTRICT,
+    FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE RESTRICT,
+    FOREIGN KEY (requisition_id) REFERENCES po_requisitions(requisition_id) ON DELETE SET NULL,
+    FOREIGN KEY (agreement_id) REFERENCES po_agreements(agreement_id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_po_number (po_number),
+    INDEX idx_supplier_id (supplier_id),
+    INDEX idx_supplier_site_id (supplier_site_id),
+    INDEX idx_buyer_id (buyer_id),
+    INDEX idx_requisition_id (requisition_id),
+    INDEX idx_agreement_id (agreement_id),
+    INDEX idx_po_date (po_date),
+    INDEX idx_need_by_date (need_by_date),
+    INDEX idx_status (status),
+    INDEX idx_approval_status (approval_status),
+    INDEX idx_amount_remaining (amount_remaining),
+    INDEX idx_created_by (created_by)
+);
+
+-- Purchase Order Lines (PO_LINES)
+CREATE TABLE IF NOT EXISTS po_lines (
+    line_id BIGINT PRIMARY KEY,
+    header_id BIGINT NOT NULL,
+    line_number INT NOT NULL,
+    item_code VARCHAR(50),
+    item_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    category VARCHAR(100),
+    uom VARCHAR(20) DEFAULT 'EACH',
+    quantity DECIMAL(10,2) NOT NULL DEFAULT 1.00,
+    unit_price DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    line_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    tax_rate DECIMAL(5,2) DEFAULT 0.00,
+    tax_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    total_line_amount DECIMAL(15,2) GENERATED ALWAYS AS (line_amount + tax_amount) STORED,
+    quantity_received DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    quantity_billed DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    quantity_remaining DECIMAL(10,2) GENERATED ALWAYS AS (quantity - quantity_received) STORED,
+    need_by_date DATE,
+    promised_date DATE,
+    status ENUM('DRAFT', 'APPROVED', 'RECEIVED', 'CLOSED', 'CANCELLED') DEFAULT 'DRAFT',
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (header_id) REFERENCES po_headers(header_id) ON DELETE CASCADE,
+    INDEX idx_header_id (header_id),
+    INDEX idx_line_number (line_number),
+    INDEX idx_item_code (item_code),
+    INDEX idx_category (category),
+    INDEX idx_need_by_date (need_by_date),
+    INDEX idx_promised_date (promised_date),
+    INDEX idx_status (status),
+    INDEX idx_quantity_remaining (quantity_remaining),
+    UNIQUE KEY uk_po_line (header_id, line_number)
+);
+
+-- Purchase Order Distributions (PO_DISTRIBUTIONS)
+CREATE TABLE IF NOT EXISTS po_distributions (
+    distribution_id BIGINT PRIMARY KEY,
+    line_id BIGINT NOT NULL,
+    distribution_number INT NOT NULL,
+    account_id INT NOT NULL,
+    quantity DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    project_id VARCHAR(50),
+    task_id VARCHAR(50),
+    department_id VARCHAR(50),
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (line_id) REFERENCES po_lines(line_id) ON DELETE CASCADE,
+    FOREIGN KEY (account_id) REFERENCES chart_of_accounts(id) ON DELETE RESTRICT,
+    INDEX idx_line_id (line_id),
+    INDEX idx_distribution_number (distribution_number),
+    INDEX idx_account_id (account_id),
+    INDEX idx_project_id (project_id),
+    INDEX idx_task_id (task_id),
+    INDEX idx_department_id (department_id),
+    UNIQUE KEY uk_po_distribution (line_id, distribution_number)
+);
+
+-- Goods Receipt Notes (PO_RECEIPTS)
+CREATE TABLE IF NOT EXISTS po_receipts (
+    receipt_id BIGINT PRIMARY KEY,
+    receipt_number VARCHAR(50) UNIQUE NOT NULL,
+    header_id BIGINT NOT NULL,
+    receipt_date DATE NOT NULL,
+    receipt_type ENUM('STANDARD', 'RETURN', 'CORRECTION') DEFAULT 'STANDARD',
+    currency_code VARCHAR(10) DEFAULT 'USD',
+    exchange_rate DECIMAL(10,6) DEFAULT 1.000000,
+    total_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    status ENUM('DRAFT', 'CONFIRMED', 'CANCELLED') DEFAULT 'DRAFT',
+    notes TEXT,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (header_id) REFERENCES po_headers(header_id) ON DELETE RESTRICT,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_receipt_number (receipt_number),
+    INDEX idx_header_id (header_id),
+    INDEX idx_receipt_date (receipt_date),
+    INDEX idx_receipt_type (receipt_type),
+    INDEX idx_status (status),
+    INDEX idx_total_amount (total_amount),
+    INDEX idx_created_by (created_by)
+);
+
+-- Goods Receipt Lines (PO_RECEIPT_LINES)
+CREATE TABLE IF NOT EXISTS po_receipt_lines (
+    receipt_line_id BIGINT PRIMARY KEY,
+    receipt_id BIGINT NOT NULL,
+    line_id BIGINT NOT NULL,
+    line_number INT NOT NULL,
+    item_code VARCHAR(50),
+    item_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    uom VARCHAR(20) DEFAULT 'EACH',
+    quantity_ordered DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    quantity_received DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    quantity_accepted DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    quantity_rejected DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    unit_price DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    line_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    lot_number VARCHAR(50),
+    serial_number VARCHAR(50),
+    expiration_date DATE,
+    status ENUM('DRAFT', 'ACCEPTED', 'REJECTED', 'CANCELLED') DEFAULT 'DRAFT',
+    rejection_reason TEXT,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (receipt_id) REFERENCES po_receipts(receipt_id) ON DELETE CASCADE,
+    FOREIGN KEY (line_id) REFERENCES po_lines(line_id) ON DELETE RESTRICT,
+    INDEX idx_receipt_id (receipt_id),
+    INDEX idx_line_id (line_id),
+    INDEX idx_line_number (line_number),
+    INDEX idx_item_code (item_code),
+    INDEX idx_lot_number (lot_number),
+    INDEX idx_serial_number (serial_number),
+    INDEX idx_expiration_date (expiration_date),
+    INDEX idx_status (status),
+    UNIQUE KEY uk_receipt_line (receipt_id, line_number)
+);
+
+-- Purchase Order Approvals (PO_APPROVALS)
+CREATE TABLE IF NOT EXISTS po_approvals (
+    approval_id BIGINT PRIMARY KEY,
+    document_type ENUM('AGREEMENT', 'REQUISITION', 'PURCHASE_ORDER') NOT NULL,
+    document_id BIGINT NOT NULL,
+    approver_id INT NOT NULL,
+    approval_level INT NOT NULL DEFAULT 1,
+    approval_status ENUM('PENDING', 'APPROVED', 'REJECTED') DEFAULT 'PENDING',
+    approval_date TIMESTAMP NULL,
+    comments TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (approver_id) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_document_type (document_type),
+    INDEX idx_document_id (document_id),
+    INDEX idx_approver_id (approver_id),
+    INDEX idx_approval_level (approval_level),
+    INDEX idx_approval_status (approval_status),
+    INDEX idx_approval_date (approval_date)
+);
+
+-- Procurement Audit Log (PO_AUDIT_LOG)
+CREATE TABLE IF NOT EXISTS po_audit_log (
+    audit_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    document_type ENUM('AGREEMENT', 'REQUISITION', 'PURCHASE_ORDER', 'RECEIPT') NOT NULL,
+    document_id BIGINT NOT NULL,
+    old_values JSON,
+    new_values JSON,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_user_id (user_id),
+    INDEX idx_action (action),
+    INDEX idx_document_type (document_type),
+    INDEX idx_document_id (document_id),
+    INDEX idx_created_at (created_at)
+);
+
+-- Procurement Settings (PO_SETTINGS)
+CREATE TABLE IF NOT EXISTS po_settings (
+    setting_id INT AUTO_INCREMENT PRIMARY KEY,
+    setting_name VARCHAR(100) UNIQUE NOT NULL,
+    setting_value TEXT,
+    setting_type ENUM('STRING', 'NUMBER', 'BOOLEAN', 'JSON') DEFAULT 'STRING',
+    description TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_setting_name (setting_name),
+    INDEX idx_is_active (is_active)
+);
+
+-- Insert default procurement settings
+INSERT INTO po_settings (setting_name, setting_value, setting_type, description) VALUES
+('DEFAULT_CURRENCY', 'USD', 'STRING', 'Default currency for procurement documents'),
+('DEFAULT_PAYMENT_TERMS', '30', 'NUMBER', 'Default payment terms in days'),
+('REQUIRE_APPROVAL', 'true', 'BOOLEAN', 'Whether approval is required for procurement documents'),
+('AUTO_GENERATE_NUMBERS', 'true', 'BOOLEAN', 'Auto-generate document numbers'),
+('DEFAULT_APPROVAL_LEVELS', '2', 'NUMBER', 'Default number of approval levels required'),
+('ENABLE_BLANKET_AGREEMENTS', 'true', 'BOOLEAN', 'Enable blanket purchase agreements'),
+('ENABLE_CONTRACT_RELEASES', 'true', 'BOOLEAN', 'Enable contract purchase order releases'),
+('DEFAULT_TAX_RATE', '0.00', 'NUMBER', 'Default tax rate percentage'),
+('ENABLE_LOT_TRACKING', 'false', 'BOOLEAN', 'Enable lot number tracking for receipts'),
+('ENABLE_SERIAL_TRACKING', 'false', 'BOOLEAN', 'Enable serial number tracking for receipts')
+ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), description=VALUES(description);
+
+-- Procurement Document Numbers (PO_DOCUMENT_NUMBERS)
+CREATE TABLE IF NOT EXISTS po_document_numbers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    document_type ENUM('AGREEMENT', 'REQUISITION', 'PURCHASE_ORDER', 'RECEIPT') NOT NULL,
+    prefix VARCHAR(10) DEFAULT '',
+    suffix VARCHAR(10) DEFAULT '',
+    next_number BIGINT DEFAULT 1,
+    number_format VARCHAR(50) DEFAULT '000000',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_document_type (document_type),
+    INDEX idx_is_active (is_active)
+);
+
+-- Insert default document number formats
+INSERT INTO po_document_numbers (document_type, prefix, next_number, number_format) VALUES
+('AGREEMENT', 'PA', 1, '000000'),
+('REQUISITION', 'PR', 1, '000000'),
+('PURCHASE_ORDER', 'PO', 1, '000000'),
+('RECEIPT', 'GRN', 1, '000000')
+ON DUPLICATE KEY UPDATE prefix=VALUES(prefix), number_format=VALUES(number_format);
+
+-- Procurement Workflow Rules (PO_WORKFLOW_RULES)
+CREATE TABLE IF NOT EXISTS po_workflow_rules (
+    rule_id INT AUTO_INCREMENT PRIMARY KEY,
+    rule_name VARCHAR(100) NOT NULL,
+    document_type ENUM('AGREEMENT', 'REQUISITION', 'PURCHASE_ORDER') NOT NULL,
+    amount_from DECIMAL(15,2) DEFAULT 0.00,
+    amount_to DECIMAL(15,2) DEFAULT 999999999.99,
+    approval_levels INT DEFAULT 1,
+    approver_roles JSON,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_document_type (document_type),
+    INDEX idx_amount_from (amount_from),
+    INDEX idx_amount_to (amount_to),
+    INDEX idx_is_active (is_active)
+);
+
+-- Insert default workflow rules
+INSERT INTO po_workflow_rules (rule_name, document_type, amount_from, amount_to, approval_levels, approver_roles) VALUES
+('Low Value Requisitions', 'REQUISITION', 0.00, 1000.00, 1, '["manager"]'),
+('Medium Value Requisitions', 'REQUISITION', 1000.01, 10000.00, 2, '["manager", "admin"]'),
+('High Value Requisitions', 'REQUISITION', 10000.01, 999999999.99, 3, '["manager", "admin", "admin"]'),
+('Low Value Purchase Orders', 'PURCHASE_ORDER', 0.00, 5000.00, 1, '["manager"]'),
+('Medium Value Purchase Orders', 'PURCHASE_ORDER', 5000.01, 50000.00, 2, '["manager", "admin"]'),
+('High Value Purchase Orders', 'PURCHASE_ORDER', 50000.01, 999999999.99, 3, '["manager", "admin", "admin"]'),
+('All Agreements', 'AGREEMENT', 0.00, 999999999.99, 2, '["manager", "admin"]')
+ON DUPLICATE KEY UPDATE approval_levels=VALUES(approval_levels), approver_roles=VALUES(approver_roles);
+
+-- Procurement Categories (PO_CATEGORIES)
+CREATE TABLE IF NOT EXISTS po_categories (
+    category_id INT AUTO_INCREMENT PRIMARY KEY,
+    category_code VARCHAR(20) UNIQUE NOT NULL,
+    category_name VARCHAR(100) NOT NULL,
+    parent_category_id INT NULL,
+    description TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (parent_category_id) REFERENCES po_categories(category_id) ON DELETE SET NULL,
+    INDEX idx_category_code (category_code),
+    INDEX idx_parent_category_id (parent_category_id),
+    INDEX idx_is_active (is_active)
+);
+
+-- Insert default procurement categories
+INSERT INTO po_categories (category_code, category_name, description) VALUES
+('OFFICE', 'Office Supplies', 'Office supplies and stationery'),
+('IT', 'IT Equipment', 'Computers, software, and IT equipment'),
+('FURNITURE', 'Furniture', 'Office furniture and fixtures'),
+('SERVICES', 'Professional Services', 'Consulting and professional services'),
+('TRAVEL', 'Travel & Entertainment', 'Travel expenses and entertainment'),
+('MARKETING', 'Marketing & Advertising', 'Marketing materials and advertising'),
+('MAINTENANCE', 'Maintenance & Repairs', 'Equipment maintenance and repairs'),
+('UTILITIES', 'Utilities', 'Electricity, water, gas, and other utilities'),
+('INSURANCE', 'Insurance', 'Business insurance policies'),
+('LEGAL', 'Legal Services', 'Legal fees and services')
+ON DUPLICATE KEY UPDATE category_name=VALUES(category_name), description=VALUES(description);
+
+-- Procurement Items (PO_ITEMS)
+CREATE TABLE IF NOT EXISTS po_items (
+    item_id INT AUTO_INCREMENT PRIMARY KEY,
+    item_code VARCHAR(50) UNIQUE NOT NULL,
+    item_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    category_id INT NOT NULL,
+    uom VARCHAR(20) DEFAULT 'EACH',
+    standard_price DECIMAL(15,2) DEFAULT 0.00,
+    currency_code VARCHAR(10) DEFAULT 'USD',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (category_id) REFERENCES po_categories(category_id) ON DELETE RESTRICT,
+    INDEX idx_item_code (item_code),
+    INDEX idx_category_id (category_id),
+    INDEX idx_is_active (is_active)
+);
+
+-- Insert default procurement items
+INSERT INTO po_items (item_code, item_name, description, category_id, uom, standard_price) VALUES
+('LAPTOP001', 'Dell Latitude Laptop', 'Business laptop with standard configuration', 2, 'EACH', 1200.00),
+('DESK001', 'Office Desk', 'Standard office desk 60x30 inches', 3, 'EACH', 350.00),
+('CHAIR001', 'Office Chair', 'Ergonomic office chair with armrests', 3, 'EACH', 250.00),
+('PAPER001', 'Copy Paper', 'A4 copy paper 80gsm, 500 sheets', 1, 'REAM', 5.00),
+('PEN001', 'Ballpoint Pens', 'Blue ballpoint pens, pack of 12', 1, 'PACK', 3.50),
+('CONSULT001', 'IT Consulting', 'Professional IT consulting services', 4, 'HOUR', 150.00),
+('TRAVEL001', 'Business Travel', 'Business travel expenses', 5, 'TRIP', 0.00),
+('ADV001', 'Online Advertising', 'Digital advertising services', 6, 'CAMPAIGN', 1000.00),
+('MAINT001', 'Equipment Maintenance', 'Preventive maintenance services', 7, 'SERVICE', 200.00),
+('UTIL001', 'Electricity', 'Monthly electricity service', 8, 'MONTH', 500.00)
+ON DUPLICATE KEY UPDATE item_name=VALUES(item_name), description=VALUES(description), standard_price=VALUES(standard_price);
+
+-- Procurement Templates (PO_TEMPLATES)
+CREATE TABLE IF NOT EXISTS po_templates (
+    template_id INT AUTO_INCREMENT PRIMARY KEY,
+    template_name VARCHAR(100) NOT NULL,
+    template_type ENUM('AGREEMENT', 'REQUISITION', 'PURCHASE_ORDER') NOT NULL,
+    description TEXT,
+    template_data JSON NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_template_type (template_type),
+    INDEX idx_is_active (is_active),
+    INDEX idx_created_by (created_by)
+);
+
+-- Procurement Notifications (PO_NOTIFICATIONS)
+CREATE TABLE IF NOT EXISTS po_notifications (
+    notification_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    notification_type ENUM('APPROVAL_REQUIRED', 'APPROVAL_COMPLETED', 'DOCUMENT_CREATED', 'DOCUMENT_UPDATED', 'RECEIPT_DUE') NOT NULL,
+    document_type ENUM('AGREEMENT', 'REQUISITION', 'PURCHASE_ORDER', 'RECEIPT') NOT NULL,
+    document_id BIGINT NOT NULL,
+    message TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_user_id (user_id),
+    INDEX idx_notification_type (notification_type),
+    INDEX idx_document_type (document_type),
+    INDEX idx_document_id (document_id),
+    INDEX idx_is_read (is_read),
+    INDEX idx_created_at (created_at)
+);
+
+-- Procurement Reports (PO_REPORTS)
+CREATE TABLE IF NOT EXISTS po_reports (
+    report_id INT AUTO_INCREMENT PRIMARY KEY,
+    report_name VARCHAR(100) NOT NULL,
+    report_type ENUM('AGREEMENT_SUMMARY', 'REQUISITION_SUMMARY', 'PO_SUMMARY', 'RECEIPT_SUMMARY', 'SPEND_ANALYSIS', 'SUPPLIER_ANALYSIS') NOT NULL,
+    description TEXT,
+    report_parameters JSON,
+    is_scheduled BOOLEAN DEFAULT FALSE,
+    schedule_frequency ENUM('DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY') NULL,
+    last_run_at TIMESTAMP NULL,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_report_type (report_type),
+    INDEX idx_is_scheduled (is_scheduled),
+    INDEX idx_created_by (created_by)
+);
+
+-- Insert default procurement reports
+INSERT INTO po_reports (report_name, report_type, description, created_by) VALUES
+('Purchase Agreement Summary', 'AGREEMENT_SUMMARY', 'Summary of all purchase agreements', 1),
+('Purchase Requisition Summary', 'REQUISITION_SUMMARY', 'Summary of all purchase requisitions', 1),
+('Purchase Order Summary', 'PO_SUMMARY', 'Summary of all purchase orders', 1),
+('Goods Receipt Summary', 'RECEIPT_SUMMARY', 'Summary of all goods receipts', 1),
+('Spend Analysis Report', 'SPEND_ANALYSIS', 'Analysis of procurement spending by category and supplier', 1),
+('Supplier Performance Analysis', 'SUPPLIER_ANALYSIS', 'Analysis of supplier performance and delivery', 1)
+ON DUPLICATE KEY UPDATE description=VALUES(description);
+
+-- Procurement Dashboard Widgets (PO_DASHBOARD_WIDGETS)
+CREATE TABLE IF NOT EXISTS po_dashboard_widgets (
+    widget_id INT AUTO_INCREMENT PRIMARY KEY,
+    widget_name VARCHAR(100) NOT NULL,
+    widget_type ENUM('CHART', 'TABLE', 'METRIC', 'LIST') NOT NULL,
+    widget_config JSON NOT NULL,
+    position_x INT DEFAULT 0,
+    position_y INT DEFAULT 0,
+    width INT DEFAULT 4,
+    height INT DEFAULT 3,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_widget_type (widget_type),
+    INDEX idx_is_active (is_active),
+    INDEX idx_created_by (created_by)
+);
+
+-- Insert default dashboard widgets
+INSERT INTO po_dashboard_widgets (widget_name, widget_type, widget_config, created_by) VALUES
+('Pending Approvals', 'LIST', '{"title": "Pending Approvals", "query": "pending_approvals", "limit": 10}', 1),
+('Recent Purchase Orders', 'TABLE', '{"title": "Recent Purchase Orders", "query": "recent_pos", "columns": ["po_number", "supplier_name", "total_amount", "status"]}', 1),
+('Spend by Category', 'CHART', '{"title": "Spend by Category", "type": "pie", "query": "spend_by_category"}', 1),
+('Monthly Spend Trend', 'CHART', '{"title": "Monthly Spend Trend", "type": "line", "query": "monthly_spend_trend"}', 1),
+('Supplier Performance', 'METRIC', '{"title": "Average Delivery Time", "query": "avg_delivery_time", "format": "days"}', 1),
+('Open Requisitions', 'METRIC', '{"title": "Open Requisitions", "query": "open_requisitions_count", "format": "number"}', 1)
+ON DUPLICATE KEY UPDATE widget_config=VALUES(widget_config);
+
+-- Procurement User Preferences (PO_USER_PREFERENCES)
+CREATE TABLE IF NOT EXISTS po_user_preferences (
+    preference_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    preference_key VARCHAR(100) NOT NULL,
+    preference_value TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_user_preference (user_id, preference_key),
+    INDEX idx_user_id (user_id),
+    INDEX idx_preference_key (preference_key)
+);
+
+-- Insert default user preferences
+INSERT INTO po_user_preferences (user_id, preference_key, preference_value) VALUES
+(1, 'default_currency', 'USD'),
+(1, 'default_payment_terms', '30'),
+(1, 'dashboard_layout', 'default'),
+(1, 'notifications_enabled', 'true')
+ON DUPLICATE KEY UPDATE preference_value=VALUES(preference_value);

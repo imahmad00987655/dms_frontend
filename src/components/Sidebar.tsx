@@ -24,7 +24,8 @@ import {
   LogOut,
   Menu,
   X,
-  ChevronRight
+  ChevronRight,
+  ShoppingCart
 } from "lucide-react";
 
 interface SidebarProps {
@@ -77,6 +78,13 @@ export const Sidebar = ({ activeModule, setActiveModule, isCollapsed, setIsColla
       icon: Package,
       description: "Stock Management",
       color: "text-purple-600"
+    },
+    {
+      id: "procurement",
+      label: "Procurement",
+      icon: ShoppingCart,
+      description: "Purchase Orders & Agreements",
+      color: "text-blue-700"
     },
     {
       id: "receivables",
@@ -182,6 +190,20 @@ export const Sidebar = ({ activeModule, setActiveModule, isCollapsed, setIsColla
       icon: Users,
       description: "Party Management",
       color: "text-emerald-500"
+    },
+    {
+      id: "sales-process",
+      label: "Sales Process",
+      icon: TrendingUp,
+      description: "Sales Management Hub",
+      color: "text-blue-500"
+    },
+    {
+      id: "settings",
+      label: "Settings",
+      icon: Settings,
+      description: "Application Settings",
+      color: "text-gray-600"
     }
   ];
 
@@ -292,17 +314,6 @@ export const Sidebar = ({ activeModule, setActiveModule, isCollapsed, setIsColla
 
           {/* Footer */}
           <div className="p-3 lg:p-4 border-t border-gray-100 space-y-2 flex-shrink-0">
-            <Button 
-              variant="ghost" 
-              className={`w-full ${
-                isCollapsed ? 'lg:justify-center lg:px-2' : 'justify-start'
-              } text-sm hover:bg-gray-50 rounded-xl transition-all duration-200`}
-              title={isCollapsed ? "Settings" : undefined}
-            >
-              <Settings className="w-4 h-4 flex-shrink-0 text-gray-500" />
-              {!isCollapsed && <span className="ml-3 truncate">Settings</span>}
-            </Button>
-            
             <Button 
               variant="ghost" 
               className={`w-full ${

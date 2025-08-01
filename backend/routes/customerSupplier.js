@@ -522,6 +522,7 @@ router.get('/suppliers', async (req, res) => {
     const [rows] = await connection.execute(`
       SELECT 
         sp.profile_id,
+        sp.profile_id as supplier_id,
         sp.party_id,
         sp.supplier_number,
         sp.supplier_type,

@@ -17,6 +17,8 @@ import apSuppliersRoutes from './routes/apSuppliers.js';
 import apInvoicesRoutes from './routes/apInvoices.js';
 import apPaymentsRoutes from './routes/apPayments.js';
 import customerSupplierRoutes from './routes/customerSupplier.js';
+import procurementRoutes from './routes/procurement.js';
+
 
 // Load environment variables
 dotenv.config();
@@ -84,6 +86,302 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Test database connection route
+app.get('/test-db', async (req, res) => {
+  try {
+    console.log('Testing database connection...');
+    const { testConnection } = await import('./config/database.js');
+    const mysql = await import('mysql2/promise');
+    const { dbConfig } = await import('./config/database.js');
+    
+    const dbConnected = await testConnection();
+    
+    if (dbConnected) {
+      // Test if required tables exist
+      const connection = await mysql.default.createConnection(dbConfig);
+      
+      const [poAgreements] = await connection.execute("SHOW TABLES LIKE 'po_agreements'");
+      const [apSuppliers] = await connection.execute("SHOW TABLES LIKE 'ap_suppliers'");
+      const [poAgreementLines] = await connection.execute("SHOW TABLES LIKE 'po_agreement_lines'");
+      
+      await connection.end();
+      
+      res.json({
+        success: true,
+        message: 'Database connection successful',
+        tables: {
+          po_agreements: poAgreements.length > 0,
+          ap_suppliers: apSuppliers.length > 0,
+          po_agreement_lines: poAgreementLines.length > 0
+        }
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Database connection failed'
+      });
+    }
+  } catch (error) {
+    console.error('Database test error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Database test failed',
+      details: error.message
+    });
+  }
+});
+
+// Test suppliers endpoint
+app.get('/test-suppliers', async (req, res) => {
+  try {
+    console.log('Testing suppliers...');
+    const mysql = await import('mysql2/promise');
+    const { dbConfig } = await import('./config/database.js');
+    
+    const connection = await mysql.default.createConnection(dbConfig);
+    
+    const [suppliers] = await connection.execute('SELECT supplier_id, supplier_name FROM ap_suppliers LIMIT 10');
+    
+    await connection.end();
+    
+    res.json({
+      success: true,
+      suppliers: suppliers
+    });
+  } catch (error) {
+    console.error('Error fetching suppliers:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch suppliers',
+      details: error.message
+    });
+  }
+});
+
+// Procurement suppliers endpoint (no auth)
+app.get('/procurement-suppliers', async (req, res) => {
+  try {
+    console.log('Fetching procurement suppliers...');
+    const mysql = await import('mysql2/promise');
+    const { dbConfig } = await import('./config/database.js');
+    
+    const connection = await mysql.default.createConnection(dbConfig);
+    
+    const [suppliers] = await connection.execute(`
+      SELECT 
+        sp.profile_id as supplier_id,
+        p.party_name as supplier_name,
+        sp.supplier_number,
+        sp.supplier_type,
+        sp.supplier_class,
+        sp.supplier_category,
+        'ACTIVE' as status
+      FROM hz_supplier_profiles sp
+      JOIN hz_parties p ON sp.party_id = p.party_id
+      ORDER BY p.party_name
+    `);
+    
+    await connection.end();
+    
+    res.json(suppliers);
+  } catch (error) {
+    console.error('Error fetching suppliers:', error);
+    res.status(500).json({ error: 'Failed to fetch suppliers' });
+  }
+});
+
+// Test purchase agreement creation route
+app.post('/test-agreement', async (req, res) => {
+  try {
+    console.log('=== TEST AGREEMENT CREATION ===');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    
+    const {
+      supplier_id,
+      description = '',
+      lines = [],
+      agreement_type = '',
+      status = '',
+      approval_status = '',
+      currency_code = '',
+      exchange_rate = '',
+      total_amount = '',
+      agreement_date = '',
+      effective_start_date = '',
+      effective_end_date = ''
+    } = req.body;
+    
+    if (!supplier_id) {
+      return res.status(400).json({ error: 'supplier_id is required' });
+    }
+    
+    const mysql = await import('mysql2/promise');
+    const { dbConfig } = await import('./config/database.js');
+    
+    console.log('Creating database connection...');
+    const connection = await mysql.default.createConnection(dbConfig);
+    console.log('Database connection created successfully');
+    
+    // Check if supplier exists in hz_supplier_profiles
+    let supplierExists = false;
+    try {
+      const [existingSuppliers] = await connection.execute('SELECT profile_id FROM hz_supplier_profiles WHERE profile_id = ?', [supplier_id]);
+      supplierExists = existingSuppliers.length > 0;
+    } catch (error) {
+      console.log('Error checking supplier:', error.message);
+    }
+    
+    if (!supplierExists) {
+      console.log(`Supplier ${supplier_id} does not exist in hz_supplier_profiles, cannot create agreement`);
+      await connection.end();
+      return res.status(400).json({ 
+        error: 'Supplier not found',
+        details: `Supplier ID ${supplier_id} does not exist in the supplier profiles` 
+      });
+    }
+    console.log('Database connection created successfully');
+    
+    // Generate agreement ID and number
+    const agreementId = Date.now();
+    const finalAgreementNumber = `PA${agreementId}`;
+    const today = new Date().toISOString().split('T')[0];
+    const endDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    // Calculate total amount from line items if not provided
+    let calculatedTotalAmount = 0;
+    if (total_amount && !isNaN(parseFloat(total_amount))) {
+      calculatedTotalAmount = parseFloat(total_amount);
+    } else if (lines && lines.length > 0) {
+      calculatedTotalAmount = lines.reduce((total, line) => {
+        return total + (Number(line.line_amount) || 0);
+      }, 0);
+    }
+
+    console.log('Creating agreement with:', {
+      agreementId,
+      finalAgreementNumber,
+      supplier_id,
+      description,
+      calculatedTotalAmount
+    });
+    
+    console.log('About to insert agreement header...');
+    // Insert agreement header with minimal required fields
+    const result = await connection.execute(`
+      INSERT INTO po_agreements (
+        agreement_id, 
+        agreement_number, 
+        agreement_type, 
+        supplier_id, 
+        supplier_site_id,
+        buyer_id, 
+        agreement_date, 
+        effective_start_date, 
+        effective_end_date,
+        currency_code, 
+        exchange_rate, 
+        total_amount, 
+        amount_used,
+        payment_terms_id,
+        description, 
+        notes, 
+        created_by,
+        status,
+        approval_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      agreementId,           // agreement_id
+      finalAgreementNumber,  // agreement_number
+      agreement_type,        // agreement_type
+      supplier_id,          // supplier_id
+      1,                    // supplier_site_id (default)
+      1,                    // buyer_id (default)
+      agreement_date || today,                // agreement_date
+      effective_start_date || today,                // effective_start_date
+      effective_end_date || endDate,              // effective_end_date
+      currency_code || 'USD',                // currency_code
+      exchange_rate || 1.0,                  // exchange_rate
+      calculatedTotalAmount,                 // total_amount
+      0,                    // amount_used (start with 0)
+      30,                   // payment_terms_id (default)
+      description,          // description
+      '',                   // notes
+      1,                    // created_by (default)
+      status,               // status
+      approval_status       // approval_status
+    ]);
+    
+    console.log('Agreement header inserted successfully');
+    
+    // Create line items if provided
+    if (lines && lines.length > 0) {
+      console.log('Creating line items:', lines.length);
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        console.log(`Processing line ${i + 1}:`, line);
+        
+        // Use simple timestamp-based line ID
+        const lineId = Date.now() + i;
+        
+        await connection.execute(`
+          INSERT INTO po_agreement_lines (
+            line_id, agreement_id, line_number, item_code, item_name, description,
+            category, uom, quantity, unit_price, line_amount, min_quantity,
+            max_quantity, need_by_date, suggested_supplier, suggested_supplier_id, notes
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          lineId, 
+          agreementId, 
+          i + 1, 
+          line.item_code || '', 
+          line.item_name || '',
+          line.description || '', 
+          line.category || '', 
+          line.uom || 'EACH',
+          Number(line.quantity) || 1, 
+          Number(line.unit_price) || 0, 
+          Number(line.line_amount) || 0,
+          line.min_quantity ? Number(line.min_quantity) : null, 
+          line.max_quantity ? Number(line.max_quantity) : null,
+          line.need_by_date || null, 
+          line.suggested_supplier || '',
+          line.suggested_supplier_id ? Number(line.suggested_supplier_id) : null, 
+          line.notes || ''
+        ]);
+      }
+      
+      console.log('Line items created successfully');
+    }
+    
+    await connection.end();
+    
+    console.log('Agreement created successfully');
+    
+    res.status(201).json({
+      success: true,
+      message: 'Agreement created successfully',
+      agreement: {
+        agreement_id: agreementId,
+        agreement_number: finalAgreementNumber,
+        supplier_id,
+        description,
+        lines_count: lines.length
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error creating purchase agreement:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create agreement',
+      details: error.message,
+      stack: error.stack
+    });
+  }
+});
+
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/journal-entries', journalEntryRoutes);
@@ -102,6 +400,10 @@ app.use('/api/ap/payments', apPaymentsRoutes);
 
 // Customer/Supplier Management System Routes (Oracle Apps R12 Structure)
 app.use('/api/customer-supplier', customerSupplierRoutes);
+
+// Procurement System Routes
+app.use('/api/procurement', procurementRoutes);
+
 
 // 404 handler
 app.use('*', (req, res) => {

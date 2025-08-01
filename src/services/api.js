@@ -536,6 +536,180 @@ class ApiService {
     const queryParams = new URLSearchParams(params);
     return this.request(`/customer-supplier/search/parties?${queryParams}`);
   }
+
+  // ============================================================================
+  // PROCUREMENT SYSTEM (Oracle E-Business Suite R12 Model)
+  // ============================================================================
+
+  // Purchase Agreements
+  async getPurchaseAgreements(params = {}) {
+    const queryString = new URLSearchParams(params).toString();
+    return this.request(`/procurement/agreements${queryString ? `?${queryString}` : ''}`);
+  }
+
+  async getPurchaseAgreement(id) {
+    return this.request(`/procurement/agreements/${id}`);
+  }
+
+  async createPurchaseAgreement(data) {
+    return this.request('/procurement/agreements', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  // Create purchase agreement (simple method)
+  async createPurchaseAgreementSimple(data) {
+    return this.request('/procurement/create-agreement-simple', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  // Agreement Lines
+  async getAgreementLines(agreementId) {
+    return this.request(`/procurement/agreements/${agreementId}/lines`);
+  }
+
+  async createAgreementLine(agreementId, lineData) {
+    return this.request(`/procurement/agreements/${agreementId}/lines`, {
+      method: 'POST',
+      body: JSON.stringify(lineData)
+    });
+  }
+
+  async updatePurchaseAgreement(id, data) {
+    return this.request(`/procurement/agreements/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deletePurchaseAgreement(id) {
+    return this.request(`/procurement/agreements/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Purchase Requisitions
+  async getPurchaseRequisitions(params = {}) {
+    const queryString = new URLSearchParams(params).toString();
+    return this.request(`/procurement/requisitions${queryString ? `?${queryString}` : ''}`);
+  }
+
+  async getPurchaseRequisition(id) {
+    return this.request(`/procurement/requisitions/${id}`);
+  }
+
+  async createPurchaseRequisition(data) {
+    return this.request('/procurement/requisitions', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updatePurchaseRequisition(id, data) {
+    return this.request(`/procurement/requisitions/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deletePurchaseRequisition(id) {
+    return this.request(`/procurement/requisitions/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Purchase Orders
+  async getPurchaseOrders(params = {}) {
+    const queryString = new URLSearchParams(params).toString();
+    return this.request(`/procurement/purchase-orders${queryString ? `?${queryString}` : ''}`);
+  }
+
+  async getPurchaseOrder(id) {
+    return this.request(`/procurement/purchase-orders/${id}`);
+  }
+
+  async createPurchaseOrder(data) {
+    return this.request('/procurement/purchase-orders', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updatePurchaseOrder(id, data) {
+    return this.request(`/procurement/purchase-orders/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deletePurchaseOrder(id) {
+    return this.request(`/procurement/purchase-orders/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  async getPurchaseOrderLines(headerId) {
+    return this.request(`/procurement/purchase-orders/${headerId}/lines`);
+  }
+
+  // Procurement Dropdowns
+  async getRequisitionsDropdown() {
+    return this.request('/procurement/requisitions-dropdown');
+  }
+
+  async getAgreementsDropdown() {
+    return this.request('/procurement/agreements-dropdown');
+  }
+
+  async getPurchaseOrdersDropdown() {
+    return this.request('/procurement/purchase-orders-dropdown');
+  }
+
+  // Procurement Suppliers and Users
+  async getProcurementSuppliers() {
+    // Use direct URL to bypass API prefix and authentication
+    const url = 'http://localhost:5000/procurement-suppliers';
+    const config = {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    };
+
+    try {
+      const response = await fetch(url, config);
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.message || 'Request failed');
+      }
+
+      return responseData;
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
+  }
+
+  async getProcurementSupplierSites(supplierId) {
+    return this.request(`/procurement/suppliers/${supplierId}/sites`);
+  }
+
+  async getProcurementUsers() {
+    return this.request('/procurement/users');
+  }
+
+  // Procurement Categories and Items
+  async getProcurementCategories() {
+    return this.request('/procurement/categories');
+  }
+
+  async getProcurementItems() {
+    return this.request('/procurement/items');
+  }
 }
 
 // Create singleton instance

@@ -19,6 +19,9 @@ import { ReceiptAccounting } from "@/components/modules/ReceiptAccounting";
 import { Expenses } from "@/components/modules/Expenses";
 import { Reports } from "@/components/modules/Reports";
 import { CustomerSupplierManagement } from "@/components/modules/CustomerSupplierManagement";
+import ProcurementManager from "@/components/modules/ProcurementManager";
+import Settings from "@/components/modules/Settings";
+import { SalesProcess } from "@/components/modules/SalesProcess";
 
 const Index = () => {
   const [activeModule, setActiveModule] = useState("dashboard");
@@ -32,6 +35,8 @@ const Index = () => {
         return <GeneralAccounting />;
       case "inventory":
         return <InventoryManagement />;
+      case "procurement":
+        return <ProcurementManager />;
       case "receivables":
         return <Receivables />;
       case "payables":
@@ -62,6 +67,10 @@ const Index = () => {
         return <ClaimManagement />;
       case "customer-supplier":
         return <CustomerSupplierManagement />;
+      case "sales-process":
+        return <SalesProcess />;
+      case "settings":
+        return <Settings />;
       default:
         return <DashboardContent />;
     }
