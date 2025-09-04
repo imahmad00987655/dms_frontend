@@ -98,4 +98,79 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Custom scrollbar styles */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-track {
+    background: #334155;
+  }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #64748b;
+  }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+
+  /* Dialog and form improvements */
+  .dialog-content-large {
+    min-height: 80vh;
+    max-height: 90vh;
+  }
+
+  .form-container {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .form-scrollable {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  /* Ensure proper scrolling in modals */
+  .modal-scroll-container {
+    overflow-y: auto !important;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+  }
+
+  .modal-scroll-container::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .modal-scroll-container::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 4px;
+  }
+
+  .modal-scroll-container::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+
+  .modal-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
 }

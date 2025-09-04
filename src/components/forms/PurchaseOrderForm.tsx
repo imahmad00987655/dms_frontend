@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,17 +11,36 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import apiService from '../../services/api.js';
 
-interface Party {
-  party_id: number;
-  party_name: string;
-  party_type: string;
+interface User {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role: string;
 }
 
 interface Supplier {
   supplier_id: number;
-  party_id: number;
-  party_name: string;
+  supplier_name: string;
   supplier_number: string;
+  supplier_type?: string;
+  supplier_class?: string;
+  supplier_category?: string;
+  status?: string;
+}
+
+interface SupplierSite {
+  site_id: number;
+  supplier_id: number;
+  site_name: string;
+  site_type: 'BILL_TO' | 'SHIP_TO' | 'BOTH';
+  address_line1?: string;
+  city?: string;
+  state?: string;
+  postal_code?: string;
+  country?: string;
+  is_primary: boolean;
+  status: 'ACTIVE' | 'INACTIVE';
 }
 
 interface PurchaseRequisition {
@@ -36,6 +55,9 @@ interface PurchaseOrder {
   po_number?: string;
   po_type?: string;
   supplier_id?: number;
+  supplier_site_id?: number;
+  supplier_site_name?: string; // Add supplier_site_name field
+  party_id?: number; // Add party_id field
   buyer_id?: number;
   requisition_id?: number;
   po_date?: string;
@@ -54,7 +76,7 @@ interface PurchaseOrder {
 interface PurchaseOrderFormProps {
   purchaseOrder?: PurchaseOrder | null;
   suppliers: Supplier[];
-  users: Party[];
+  users: User[];
   requisitions: PurchaseRequisition[];
   onSave: () => void;
   onCancel: () => void;
@@ -70,6 +92,10 @@ interface POLine {
   uom: string;
   unit_price: number;
   line_amount: number;
+  tax_rate: number;
+  tax_amount: number;
+  gst_rate: number;
+  gst_amount: number;
   quantity_received: number;
   quantity_remaining: number;
   need_by_date: string;
@@ -87,6 +113,8 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     po_number: '',
     po_type: 'STANDARD',
     supplier_id: '',
+    supplier_site_id: '',
+    party_id: '', // Add party_id field
     buyer_id: '',
     requisition_id: 'none',
     po_date: '',
@@ -102,7 +130,11 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
   });
   const [lines, setLines] = useState<POLine[]>([]);
   const [loading, setLoading] = useState(false);
+  const [supplierSites, setSupplierSites] = useState<SupplierSite[]>([]);
+  const [loadingSupplierSites, setLoadingSupplierSites] = useState(false);
+  const [selectedSiteName, setSelectedSiteName] = useState<string>('');
   const { toast } = useToast();
+  const lastFetchedSupplierId = useRef<number | null>(null);
 
   // Mock inventory items - in a real app, this would come from props or API
   const inventoryItems = [
@@ -115,12 +147,83 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
 
   const uomOptions = ['EA', 'BOX', 'KG', 'L', 'M', 'PCS', 'SET', 'ROLL', 'BAG', 'CAN'];
 
+  // Helper function to get status value with proper fallback
+  const getStatusValue = (value: string | undefined | null, fallback: string): string => {
+    if (value === undefined || value === null || value === '') {
+      return fallback;
+    }
+    return value;
+  };
+
+  const fetchSupplierSites = useCallback(async (supplierId: number) => {
+    // Prevent duplicate API calls for the same supplier
+    if (lastFetchedSupplierId.current === supplierId) {
+      console.log('🔍 Already fetched sites for supplier ID:', supplierId, 'skipping API call');
+      return;
+    }
+    
+    try {
+      console.log('🔍 Fetching supplier sites for supplier ID:', supplierId);
+      setLoadingSupplierSites(true);
+      lastFetchedSupplierId.current = supplierId;
+      
+      const response = await apiService.getProcurementSupplierSites(supplierId);
+      console.log('🔍 Raw API response:', response);
+      
+      // Handle the response structure: { data: rows }
+      const sites = response.data || response;
+      console.log('🔍 Processed supplier sites:', sites);
+      console.log('🔍 Number of sites found:', sites.length);
+      
+      setSupplierSites(sites);
+      console.log('🔍 Updated supplierSites state with:', sites);
+    } catch (error) {
+      console.error('❌ Error fetching supplier sites:', error);
+      setSupplierSites([]);
+      lastFetchedSupplierId.current = null; // Reset on error
+      toast({
+        title: "Error",
+        description: "Failed to load supplier sites",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingSupplierSites(false);
+    }
+  }, [toast]);
+
+  const fetchSiteNameById = useCallback(async (siteId: number) => {
+    try {
+      console.log('🔍 Fetching site name for site ID:', siteId);
+      const site = await apiService.getSupplierSiteById(siteId);
+      console.log('🔍 Site data:', site);
+      if (site && site.site_name) {
+        setSelectedSiteName(site.site_name);
+        console.log('🔍 Set selectedSiteName to:', site.site_name);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching site name:', error);
+    }
+  }, []);
+
   useEffect(() => {
+    console.log('🔍 useEffect triggered with purchaseOrder:', purchaseOrder);
     if (purchaseOrder) {
-      setFormData({
+      // Debug: Log the actual purchase order data
+      console.log('PurchaseOrderForm - Received purchaseOrder data:', purchaseOrder);
+      console.log('PurchaseOrderForm - Status:', purchaseOrder.status);
+      console.log('PurchaseOrderForm - Approval Status:', purchaseOrder.approval_status);
+      console.log('PurchaseOrderForm - Supplier ID:', purchaseOrder.supplier_id);
+      console.log('PurchaseOrderForm - Supplier Site ID:', purchaseOrder.supplier_site_id);
+      console.log('PurchaseOrderForm - Supplier Site Name:', purchaseOrder.supplier_site_name);
+      console.log('PurchaseOrderForm - Type of supplier_site_name:', typeof purchaseOrder.supplier_site_name);
+      console.log('PurchaseOrderForm - Is supplier_site_name truthy:', !!purchaseOrder.supplier_site_name);
+      
+      const formDataToSet = {
         po_number: purchaseOrder.po_number || '',
         po_type: purchaseOrder.po_type || 'STANDARD',
         supplier_id: purchaseOrder.supplier_id?.toString() || '',
+        supplier_site_id: purchaseOrder.supplier_site_id?.toString() || '', // Set the existing site ID
+        party_id: purchaseOrder.party_id?.toString() || '', // Set party_id
         buyer_id: purchaseOrder.buyer_id?.toString() || '',
         requisition_id: purchaseOrder.requisition_id?.toString() || 'none',
         po_date: purchaseOrder.po_date ? purchaseOrder.po_date.split('T')[0] : '',
@@ -131,18 +234,169 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         amount_remaining: purchaseOrder.amount_remaining?.toString() || '0',
         description: purchaseOrder.description || '',
         notes: purchaseOrder.notes || '',
-        status: purchaseOrder.status || 'DRAFT',
-        approval_status: purchaseOrder.approval_status || 'PENDING'
-      });
-      setLines(purchaseOrder.lines || []);
+        status: getStatusValue(purchaseOrder.status, 'DRAFT'),
+        approval_status: getStatusValue(purchaseOrder.approval_status, 'PENDING')
+      };
+      
+      
+      // Set the selected site name if available
+      if (purchaseOrder.supplier_site_name) {
+        setSelectedSiteName(purchaseOrder.supplier_site_name);
+      } else if (purchaseOrder.supplier_site_id) {
+        // If we have a site ID but no site name, fetch the site name
+        console.log('🔍 No site name available, fetching site name for ID:', purchaseOrder.supplier_site_id);
+        fetchSiteNameById(purchaseOrder.supplier_site_id);
+      }
+      
+      // FORCE FIX: If supplier_site_id is missing, try to get it from the purchase order
+      if (!formDataToSet.supplier_site_id && purchaseOrder.supplier_site_id) {
+        console.log('🔍 FORCE FIX: Setting supplier_site_id from purchaseOrder:', purchaseOrder.supplier_site_id);
+        formDataToSet.supplier_site_id = purchaseOrder.supplier_site_id.toString();
+      }
+      
+      setFormData(formDataToSet);
+      
+      // Process lines to format dates properly for HTML date inputs
+      const processedLines = (purchaseOrder.lines || []).map(line => ({
+        ...line,
+        need_by_date: line.need_by_date ? line.need_by_date.split('T')[0] : ''
+      }));
+      setLines(processedLines);
+      
+      
+      // Fetch supplier sites immediately when editing existing PO
+      if (purchaseOrder.supplier_id) {
+        console.log('🔍 About to fetch supplier sites for supplier_id:', purchaseOrder.supplier_id);
+        console.log('🔍 Current lastFetchedSupplierId:', lastFetchedSupplierId.current);
+        // Reset the last fetched supplier ID to ensure we fetch fresh data
+        lastFetchedSupplierId.current = null;
+        // Fetch supplier sites - the site ID is already set in formData
+        fetchSupplierSites(purchaseOrder.supplier_id);
+      } else {
+        console.log('🔍 No supplier_id found in purchase order data');
+      }
+    } else {
+      // Auto-generate PO number for new purchase orders
+      generatePONumber();
+      // Add a default line item for new purchase orders
+      setLines([{
+        line_number: 1,
+        item_id: undefined,
+        item_name: '',
+        item_code: 'ITEM001',
+        description: '',
+        quantity: 1,
+        uom: 'EA',
+        unit_price: 0,
+        line_amount: 0,
+        tax_rate: 0,
+        tax_amount: 0,
+        gst_rate: 0,
+        gst_amount: 0,
+        quantity_received: 0,
+        quantity_remaining: 1,
+        need_by_date: ''
+      }]);
     }
-  }, [purchaseOrder]);
+  }, [purchaseOrder, fetchSupplierSites, fetchSiteNameById]);
+
+  // Fetch supplier sites when supplier changes
+  useEffect(() => {
+    if (formData.supplier_id && formData.supplier_id !== '') {
+      const supplierId = parseInt(formData.supplier_id);
+      // Reset the last fetched supplier ID when supplier changes
+      if (lastFetchedSupplierId.current !== supplierId) {
+        lastFetchedSupplierId.current = null;
+      }
+      fetchSupplierSites(supplierId); // No existing site ID for new supplier selection
+    } else {
+      setSupplierSites([]);
+      setFormData(prev => ({ ...prev, supplier_site_id: '' }));
+      lastFetchedSupplierId.current = null;
+    }
+  }, [formData.supplier_id, fetchSupplierSites]);
+
+  // Debug: Monitor supplierSites state changes
+  useEffect(() => {
+    console.log('🔍 supplierSites state changed:', supplierSites);
+    console.log('🔍 supplierSites length:', supplierSites.length);
+    
+    // If we have a selected site ID but no sites loaded yet, and sites are now loaded,
+    // ensure the site ID is still valid
+    if (formData.supplier_site_id && supplierSites.length > 0) {
+      const selectedSite = supplierSites.find(site => site.site_id.toString() === formData.supplier_site_id);
+      if (!selectedSite) {
+        console.log('🔍 Selected site ID not found in loaded sites, clearing selection');
+        setFormData(prev => ({ ...prev, supplier_site_id: '' }));
+      }
+    }
+  }, [supplierSites, formData.supplier_site_id]);
+
+
+  // FORCE FIX: Set supplier_site_id if it's missing but we have it in purchaseOrder
+  useEffect(() => {
+    if (purchaseOrder && purchaseOrder.supplier_site_id && !formData.supplier_site_id) {
+      console.log('🔍 FORCE FIX useEffect: Setting supplier_site_id from purchaseOrder:', purchaseOrder.supplier_site_id);
+      setFormData(prev => ({
+        ...prev,
+        supplier_site_id: purchaseOrder.supplier_site_id.toString()
+      }));
+    }
+  }, [purchaseOrder, formData.supplier_site_id]);
+
+
+  // Function to generate PO number - Smart logic
+  const generatePONumber = async () => {
+    try {
+      const currentYear = new Date().getFullYear();
+      const response = await apiService.generatePONumber(currentYear);
+      
+      if (response.success && response.po_number) {
+        setFormData(prev => ({
+          ...prev,
+          po_number: response.po_number
+        }));
+      }
+    } catch (error) {
+      console.error('Error generating PO number:', error);
+      // Don't show error toast as this is not critical for form functionality
+    }
+  };
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
     }));
+    
+    // If supplier site is changed, update the selected site name
+    if (field === 'supplier_site_id') {
+      const selectedSite = supplierSites.find(site => site.site_id.toString() === value);
+      if (selectedSite) {
+        setSelectedSiteName(selectedSite.site_name);
+      } else {
+        setSelectedSiteName('');
+      }
+    }
+  };
+
+  const handleSupplierChange = async (supplierId: string) => {
+    // Update the supplier
+    setFormData(prev => ({
+      ...prev,
+      supplier_id: supplierId,
+      supplier_site_id: '' // Clear supplier site when supplier changes
+    }));
+    
+    // Clear selected site name when supplier changes
+    setSelectedSiteName('');
+    
+    // Fetch supplier sites for the selected supplier
+    if (supplierId) {
+      await fetchSupplierSites(parseInt(supplierId));
+    } else {
+      setSupplierSites([]);
+    }
   };
 
   const addLine = () => {
@@ -156,6 +410,10 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       uom: 'EA',
       unit_price: 0,
       line_amount: 0,
+      tax_rate: 0,
+      tax_amount: 0,
+      gst_rate: 0,
+      gst_amount: 0,
       quantity_received: 0,
       quantity_remaining: 1,
       need_by_date: ''
@@ -219,6 +477,14 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       toast({
         title: "Validation Error",
         description: "Supplier is required",
+        variant: "destructive"
+      });
+      return false;
+    }
+    if (!formData.supplier_site_id) {
+      toast({
+        title: "Validation Error",
+        description: "Supplier site is required",
         variant: "destructive"
       });
       return false;
@@ -293,19 +559,32 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         amount_remaining: parseFloat(formData.amount_remaining),
         exchange_rate: parseFloat(formData.exchange_rate),
         supplier_id: parseInt(formData.supplier_id),
+        supplier_site_id: parseInt(formData.supplier_site_id),
         buyer_id: parseInt(formData.buyer_id),
         requisition_id: formData.requisition_id && formData.requisition_id !== 'none' ? parseInt(formData.requisition_id) : null,
-        lines: lines.map(line => ({
-          ...line,
-          quantity: parseFloat(line.quantity.toString()),
-          unit_price: parseFloat(line.unit_price.toString()),
-          line_amount: parseFloat(line.line_amount.toString()),
-          quantity_received: parseFloat(line.quantity_received.toString()),
-          quantity_remaining: parseFloat(line.quantity_remaining.toString())
-        }))
+        lines: lines.map(line => {
+          const processedLine = {
+            ...line,
+            quantity: Math.round((parseFloat(line.quantity.toString()) || 0) * 100) / 100,
+            unit_price: Math.round((parseFloat(line.unit_price.toString()) || 0) * 100) / 100,
+            line_amount: Math.round((parseFloat(line.line_amount.toString()) || 0) * 100) / 100,
+            quantity_received: Math.round((parseFloat(line.quantity_received.toString()) || 0) * 100) / 100,
+            quantity_remaining: Math.round((parseFloat(line.quantity_remaining.toString()) || 0) * 100) / 100,
+            tax_rate: Math.round((parseFloat(line.tax_rate?.toString() || '0') || 0) * 100) / 100,
+            tax_amount: Math.round((parseFloat(line.tax_amount?.toString() || '0') || 0) * 100) / 100,
+            gst_rate: Math.round((parseFloat(line.gst_rate?.toString() || '0') || 0) * 100) / 100,
+            gst_amount: Math.round((parseFloat(line.gst_amount?.toString() || '0') || 0) * 100) / 100
+          };
+          console.log('Processed line for API:', processedLine);
+          return processedLine;
+        })
       };
 
+      console.log('Complete payload being sent to API:', payload);
+      console.log('Payload lines:', payload.lines);
+
       if (purchaseOrder) {
+        console.log('Updating purchase order with ID:', purchaseOrder.header_id);
         await apiService.updatePurchaseOrder(purchaseOrder.header_id, payload);
         toast({
           title: "Success",
@@ -401,7 +680,7 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
           <CardContent className="space-y-3">
             <div>
               <Label htmlFor="supplier_id" className="text-sm">Supplier *</Label>
-              <Select value={formData.supplier_id} onValueChange={(value) => handleInputChange('supplier_id', value)}>
+              <Select value={formData.supplier_id} onValueChange={(value) => handleSupplierChange(value)}>
                 <SelectTrigger className="h-9">
                   <SelectValue placeholder="Select supplier" />
                 </SelectTrigger>
@@ -409,12 +688,76 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                   {suppliers && suppliers.length > 0 ? (
                     suppliers.map((supplier) => (
                       <SelectItem key={supplier.supplier_id} value={supplier.supplier_id.toString()}>
-                        {supplier.party_name}
+                        {supplier.supplier_name}
                       </SelectItem>
                     ))
                   ) : (
                     <SelectItem value="no-suppliers" disabled>No suppliers available</SelectItem>
                   )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="supplier_site_id" className="text-sm">Supplier Site *</Label>
+              <Select value={formData.supplier_site_id} onValueChange={(value) => handleInputChange('supplier_site_id', value)}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Select supplier site">
+                    {(() => {
+                      // If we have a selected site name, use it
+                      if (selectedSiteName && formData.supplier_site_id) {
+                        return selectedSiteName;
+                      }
+                      
+                      // If we have a site name from the purchase order data, use it
+                      if (purchaseOrder?.supplier_site_name && formData.supplier_site_id) {
+                        return purchaseOrder.supplier_site_name;
+                      }
+                      
+                      // Otherwise, look it up in the supplierSites array
+                      if (formData.supplier_site_id && supplierSites.length > 0) {
+                        const selectedSite = supplierSites.find(site => site.site_id.toString() === formData.supplier_site_id);
+                        if (selectedSite) {
+                          setSelectedSiteName(selectedSite.site_name);
+                          return `${selectedSite.site_name}${selectedSite.is_primary ? ' (Primary)' : ''}`;
+                        }
+                      }
+                      return 'Select supplier site';
+                    })()}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {(() => {
+                    if (loadingSupplierSites) {
+                      return (
+                        <SelectItem value="loading" disabled>
+                          Loading supplier sites...
+                        </SelectItem>
+                      );
+                    }
+                    
+                    if (!formData.supplier_id) {
+                      return (
+                        <SelectItem value="no-supplier" disabled>
+                          Select a supplier first
+                        </SelectItem>
+                      );
+                    }
+                    
+                    if (supplierSites && supplierSites.length > 0) {
+                      return supplierSites.map((site) => (
+                        <SelectItem key={site.site_id} value={site.site_id.toString()}>
+                          {site.site_name} {site.is_primary ? '(Primary)' : ''}
+                        </SelectItem>
+                      ));
+                    } else {
+                      return (
+                        <SelectItem value="no-sites" disabled>
+                          No sites available for this supplier
+                        </SelectItem>
+                      );
+                    }
+                  })()}
                 </SelectContent>
               </Select>
             </div>
@@ -428,8 +771,8 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                 <SelectContent>
                   {users && users.length > 0 ? (
                     users.map((user) => (
-                      <SelectItem key={user.party_id} value={user.party_id.toString()}>
-                        {user.party_name}
+                      <SelectItem key={user.id} value={user.id.toString()}>
+                        {user.first_name} {user.last_name}
                       </SelectItem>
                     ))
                   ) : (
@@ -633,6 +976,10 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                         <TableHead className="w-20 text-xs">UOM</TableHead>
                         <TableHead className="w-32 text-xs">Unit Price</TableHead>
                         <TableHead className="w-32 text-xs">Amount</TableHead>
+                        <TableHead className="w-24 text-xs">Tax Rate %</TableHead>
+                        <TableHead className="w-24 text-xs">Tax Amount</TableHead>
+                        <TableHead className="w-24 text-xs">GST Rate %</TableHead>
+                        <TableHead className="w-24 text-xs">GST Amount</TableHead>
                         <TableHead className="w-24 text-xs">Received</TableHead>
                         <TableHead className="w-24 text-xs">Remaining</TableHead>
                         <TableHead className="w-32 text-xs">Need By</TableHead>
@@ -712,6 +1059,48 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                               value={line.line_amount}
                               readOnly
                               className="h-9 text-sm min-w-[100px] bg-gray-50"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="100"
+                              value={line.tax_rate}
+                              onChange={(e) => updateLine(index, 'tax_rate', parseFloat(e.target.value) || 0)}
+                              className="h-9 text-sm min-w-[80px]"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={line.tax_amount}
+                              onChange={(e) => updateLine(index, 'tax_amount', parseFloat(e.target.value) || 0)}
+                              className="h-9 text-sm min-w-[80px]"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="100"
+                              value={line.gst_rate}
+                              onChange={(e) => updateLine(index, 'gst_rate', parseFloat(e.target.value) || 0)}
+                              className="h-9 text-sm min-w-[80px]"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={line.gst_amount}
+                              onChange={(e) => updateLine(index, 'gst_amount', parseFloat(e.target.value) || 0)}
+                              className="h-9 text-sm min-w-[80px]"
                             />
                           </TableCell>
                           <TableCell>

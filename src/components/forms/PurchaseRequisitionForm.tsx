@@ -11,10 +11,12 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import apiService from '../../services/api.js';
 
-interface Party {
-  party_id: number;
-  party_name: string;
-  party_type: string;
+interface User {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role: string;
 }
 
 interface PurchaseRequisition {
@@ -38,7 +40,7 @@ interface PurchaseRequisition {
 
 interface PurchaseRequisitionFormProps {
   requisition?: PurchaseRequisition | null;
-  users: Party[];
+  users: User[];
   onSave: () => void;
   onCancel: () => void;
 }
@@ -320,8 +322,8 @@ export const PurchaseRequisitionForm: React.FC<PurchaseRequisitionFormProps> = (
                 <SelectContent>
                   {users && users.length > 0 ? (
                     users.map((user) => (
-                      <SelectItem key={user.party_id} value={user.party_id.toString()}>
-                        {user.party_name}
+                      <SelectItem key={user.id} value={user.id.toString()}>
+                        {user.first_name} {user.last_name}
                       </SelectItem>
                     ))
                   ) : (
@@ -340,8 +342,8 @@ export const PurchaseRequisitionForm: React.FC<PurchaseRequisitionFormProps> = (
                 <SelectContent>
                   {users && users.length > 0 ? (
                     users.map((user) => (
-                      <SelectItem key={user.party_id} value={user.party_id.toString()}>
-                        {user.party_name}
+                      <SelectItem key={user.id} value={user.id.toString()}>
+                        {user.first_name} {user.last_name}
                       </SelectItem>
                     ))
                   ) : (

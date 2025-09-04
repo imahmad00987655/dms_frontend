@@ -25,6 +25,7 @@ import apiService from '../../services/api.js';
 import { PurchaseAgreementForm } from '../forms/PurchaseAgreementForm';
 import { PurchaseOrderForm } from '../forms/PurchaseOrderForm';
 import { PurchaseRequisitionForm } from '../forms/PurchaseRequisitionForm';
+import { GRNForm } from '../forms/GRNForm';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,22 +41,25 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-interface Party {
-  party_id: number;
-  party_name: string;
-  party_type: string;
+interface User {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role: string;
 }
 
 interface Supplier {
-  profile_id: number;
   supplier_id: number;
-  party_id: number;
-  party_name: string;
   supplier_number: string;
+  supplier_name: string;
   supplier_type?: string;
   supplier_class?: string;
   supplier_category?: string;
+  party_id: number;
   status?: string;
+  supplier_status?: string;
+  sites_count?: number;
 }
 
 interface AgreementLine {
@@ -69,6 +73,10 @@ interface AgreementLine {
   uom: string;
   unit_price: number;
   line_amount: number;
+  tax_rate: number;
+  tax_amount: number;
+  gst_rate: number;
+  gst_amount: number;
   max_quantity?: number;
   min_quantity?: number;
   need_by_date?: string;
@@ -87,6 +95,10 @@ interface POLine {
   uom: string;
   unit_price: number;
   line_amount: number;
+  tax_rate: number;
+  tax_amount: number;
+  gst_rate: number;
+  gst_amount: number;
   quantity_received: number;
   quantity_remaining: number;
   need_by_date: string;
@@ -111,6 +123,7 @@ interface PurchaseAgreement {
   agreement_number?: string;
   agreement_type?: string;
   supplier_id?: number;
+  supplier_site_id?: number; // Add missing supplier_site_id field
   supplier_name?: string;
   buyer_id?: number;
   buyer_name?: string;
@@ -169,14 +182,49 @@ interface PurchaseRequisition {
   lines?: RequisitionLine[];
 }
 
-type ProcurementType = 'agreements' | 'orders' | 'requisitions';
+interface GRNLine {
+  line_id: number;
+  line_number: number;
+  item_code: string;
+  item_name: string;
+  description: string;
+  uom: string;
+  quantity_ordered: number;
+  quantity_received: number;
+  quantity_accepted: number;
+  quantity_rejected: number;
+  unit_price: number;
+  line_amount: number;
+  lot_number: string;
+  serial_number: string;
+  expiration_date: string;
+  status: string;
+  rejection_reason: string;
+  notes: string;
+}
+
+interface GRN {
+  receipt_id?: number;
+  receipt_number?: string;
+  header_id?: number;
+  receipt_date?: string;
+  receipt_type?: string;
+  currency_code?: string;
+  exchange_rate?: number;
+  total_amount?: number;
+  status?: string;
+  notes?: string;
+  lines?: GRNLine[];
+}
+
+type ProcurementType = 'agreements' | 'orders' | 'requisitions' | 'grns';
 
 const ProcurementManager: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ProcurementType>('agreements');
   const [showForm, setShowForm] = useState(false);
   const [showViewForm, setShowViewForm] = useState(false);
-  const [editingItem, setEditingItem] = useState<PurchaseAgreement | PurchaseOrder | PurchaseRequisition | null>(null);
-  const [viewingItem, setViewingItem] = useState<PurchaseAgreement | PurchaseOrder | PurchaseRequisition | null>(null);
+  const [editingItem, setEditingItem] = useState<PurchaseAgreement | PurchaseOrder | PurchaseRequisition | GRN | null>(null);
+  const [viewingItem, setViewingItem] = useState<PurchaseAgreement | PurchaseOrder | PurchaseRequisition | GRN | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [supplierFilter, setSupplierFilter] = useState('all');
@@ -185,10 +233,34 @@ const ProcurementManager: React.FC = () => {
   const [agreements, setAgreements] = useState<PurchaseAgreement[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [requisitions, setRequisitions] = useState<PurchaseRequisition[]>([]);
+  const [grns, setGRNs] = useState<GRN[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [parties, setParties] = useState<Party[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Helper function to properly handle date conversion without timezone issues
+  const formatDateForForm = (dateString: string | null | undefined): string => {
+    if (!dateString) return '';
+    
+    try {
+      // If it's already a date string without time, return as is
+      if (!dateString.includes('T')) {
+        return dateString;
+      }
+      
+      // Parse the date and convert to local date string to avoid timezone shifts
+      const date = new Date(dateString);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      
+      return `${year}-${month}-${day}`;
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return dateString.split('T')[0] || '';
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -231,14 +303,23 @@ const ProcurementManager: React.FC = () => {
       })) : [];
       setRequisitions(validRequisitions);
       
+      // Fetch GRNs
+      const grnsData = await apiService.getGRNs();
+      const validGRNs = Array.isArray(grnsData) ? grnsData.map(grn => ({
+        ...grn,
+        total_amount: typeof grn.total_amount === 'number' ? grn.total_amount : 
+                     typeof grn.total_amount === 'string' ? parseFloat(grn.total_amount) || 0 : 0
+      })) : [];
+      setGRNs(validGRNs);
+      
       // Fetch suppliers and parties for dropdowns
       const suppliersData = await apiService.getProcurementSuppliers();
       const validSuppliers = Array.isArray(suppliersData) ? suppliersData.filter(s => s && s.supplier_id) : [];
       setSuppliers(validSuppliers);
       
-      const partiesData = await apiService.getParties();
-      const filteredParties = Array.isArray(partiesData) ? partiesData.filter((p: Party) => p.party_type === 'PERSON') : [];
-      setParties(filteredParties);
+      const usersData = await apiService.getProcurementUsers();
+      const validUsers = Array.isArray(usersData) ? usersData : [];
+      setUsers(validUsers);
     } catch (error) {
       console.error('Error fetching data:', error);
       setError('Failed to load procurement data');
@@ -246,15 +327,16 @@ const ProcurementManager: React.FC = () => {
       setAgreements([]);
       setOrders([]);
       setRequisitions([]);
+      setGRNs([]);
       setSuppliers([]);
-      setParties([]);
+      setUsers([]);
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (id: number) => {
-    const itemType = activeTab === 'agreements' ? 'agreement' : activeTab === 'orders' ? 'purchase order' : 'requisition';
+    const itemType = activeTab === 'agreements' ? 'agreement' : activeTab === 'orders' ? 'purchase order' : activeTab === 'requisitions' ? 'requisition' : 'GRN';
     if (!confirm(`Are you sure you want to delete this ${itemType}?`)) return;
     
     try {
@@ -262,8 +344,10 @@ const ProcurementManager: React.FC = () => {
         await apiService.deletePurchaseAgreement(id);
       } else if (activeTab === 'orders') {
         await apiService.deletePurchaseOrder(id);
-      } else {
+      } else if (activeTab === 'requisitions') {
         await apiService.deletePurchaseRequisition(id);
+      } else if (activeTab === 'grns') {
+        await apiService.deleteGRN(id);
       }
       fetchData();
     } catch (error) {
@@ -271,7 +355,7 @@ const ProcurementManager: React.FC = () => {
     }
   };
 
-  const handleView = async (item: PurchaseAgreement | PurchaseOrder | PurchaseRequisition) => {
+  const handleView = async (item: PurchaseAgreement | PurchaseOrder | PurchaseRequisition | GRN) => {
     // Transform the data to match the form's expected structure (same as edit)
     if (activeTab === 'agreements') {
       const agreementItem = item as PurchaseAgreement;
@@ -326,12 +410,9 @@ const ProcurementManager: React.FC = () => {
           agreement_type: fullAgreement.agreement_type || agreementItem.agreement_type || 'Contract',
           supplier_id: fullAgreement.supplier_id || agreementItem.supplier_id,
           buyer_id: fullAgreement.buyer_id || agreementItem.buyer_id,
-          agreement_date: fullAgreement.agreement_date ? fullAgreement.agreement_date.split('T')[0] : 
-                         agreementItem.agreement_date ? agreementItem.agreement_date.split('T')[0] : '',
-          effective_start_date: fullAgreement.effective_start_date ? fullAgreement.effective_start_date.split('T')[0] : 
-                               agreementItem.effective_start_date ? agreementItem.effective_start_date.split('T')[0] : '',
-          effective_end_date: fullAgreement.effective_end_date ? fullAgreement.effective_end_date.split('T')[0] : 
-                             agreementItem.effective_end_date ? agreementItem.effective_end_date.split('T')[0] : '',
+          agreement_date: formatDateForForm(fullAgreement.agreement_date || agreementItem.agreement_date),
+          effective_start_date: formatDateForForm(fullAgreement.effective_start_date || agreementItem.effective_start_date),
+          effective_end_date: formatDateForForm(fullAgreement.effective_end_date || agreementItem.effective_end_date),
           currency_code: fullAgreement.currency_code || agreementItem.currency_code,
           exchange_rate: fullAgreement.exchange_rate || agreementItem.exchange_rate || 1.0,
           total_amount: fullAgreement.total_amount || agreementItem.total_amount,
@@ -370,9 +451,9 @@ const ProcurementManager: React.FC = () => {
           agreement_type: agreementItem.agreement_type || 'Contract',
           supplier_id: agreementItem.supplier_id,
           buyer_id: agreementItem.buyer_id,
-          agreement_date: agreementItem.agreement_date ? agreementItem.agreement_date.split('T')[0] : '',
-          effective_start_date: agreementItem.effective_start_date ? agreementItem.effective_start_date.split('T')[0] : '',
-          effective_end_date: agreementItem.effective_end_date ? agreementItem.effective_end_date.split('T')[0] : '',
+          agreement_date: formatDateForForm(agreementItem.agreement_date),
+          effective_start_date: formatDateForForm(agreementItem.effective_start_date),
+          effective_end_date: formatDateForForm(agreementItem.effective_end_date),
           currency_code: agreementItem.currency_code,
           exchange_rate: agreementItem.exchange_rate || 1.0,
           total_amount: agreementItem.total_amount,
@@ -439,13 +520,18 @@ const ProcurementManager: React.FC = () => {
         ]
       };
       setViewingItem(transformedItem as unknown as PurchaseAgreement | PurchaseOrder | PurchaseRequisition);
+    } else if (activeTab === 'grns') {
+      setViewingItem(item);
     } else {
       setViewingItem(item);
     }
     setShowViewForm(true);
   };
 
-  const handleEdit = async (item: PurchaseAgreement | PurchaseOrder | PurchaseRequisition) => {
+  const handleEdit = async (item: PurchaseAgreement | PurchaseOrder | PurchaseRequisition | GRN) => {
+    // Clear any existing editing state first
+    setEditingItem(null);
+    
     // Transform the data to match the form's expected structure
     if (activeTab === 'agreements') {
       const agreementItem = item as PurchaseAgreement;
@@ -499,13 +585,11 @@ const ProcurementManager: React.FC = () => {
           agreement_number: fullAgreement.agreement_number || agreementItem.agreement_number,
           agreement_type: fullAgreement.agreement_type || agreementItem.agreement_type || 'Contract',
           supplier_id: fullAgreement.supplier_id || agreementItem.supplier_id,
+          supplier_site_id: fullAgreement.supplier_site_id || agreementItem.supplier_site_id, // Add missing supplier_site_id
           buyer_id: fullAgreement.buyer_id || agreementItem.buyer_id,
-          agreement_date: fullAgreement.agreement_date ? fullAgreement.agreement_date.split('T')[0] : 
-                         agreementItem.agreement_date ? agreementItem.agreement_date.split('T')[0] : '',
-          effective_start_date: fullAgreement.effective_start_date ? fullAgreement.effective_start_date.split('T')[0] : 
-                               agreementItem.effective_start_date ? agreementItem.effective_start_date.split('T')[0] : '',
-          effective_end_date: fullAgreement.effective_end_date ? fullAgreement.effective_end_date.split('T')[0] : 
-                             agreementItem.effective_end_date ? agreementItem.effective_end_date.split('T')[0] : '',
+          agreement_date: formatDateForForm(fullAgreement.agreement_date || agreementItem.agreement_date),
+          effective_start_date: formatDateForForm(fullAgreement.effective_start_date || agreementItem.effective_start_date),
+          effective_end_date: formatDateForForm(fullAgreement.effective_end_date || agreementItem.effective_end_date),
           currency_code: fullAgreement.currency_code || agreementItem.currency_code,
           exchange_rate: fullAgreement.exchange_rate || agreementItem.exchange_rate || 1.0,
           total_amount: fullAgreement.total_amount || agreementItem.total_amount,
@@ -543,10 +627,11 @@ const ProcurementManager: React.FC = () => {
           agreement_number: agreementItem.agreement_number,
           agreement_type: agreementItem.agreement_type || 'Contract',
           supplier_id: agreementItem.supplier_id,
+          supplier_site_id: agreementItem.supplier_site_id, // Add missing supplier_site_id
           buyer_id: agreementItem.buyer_id,
-          agreement_date: agreementItem.agreement_date ? agreementItem.agreement_date.split('T')[0] : '',
-          effective_start_date: agreementItem.effective_start_date ? agreementItem.effective_start_date.split('T')[0] : '',
-          effective_end_date: agreementItem.effective_end_date ? agreementItem.effective_end_date.split('T')[0] : '',
+          agreement_date: formatDateForForm(agreementItem.agreement_date),
+          effective_start_date: formatDateForForm(agreementItem.effective_start_date),
+          effective_end_date: formatDateForForm(agreementItem.effective_end_date),
           currency_code: agreementItem.currency_code,
           exchange_rate: agreementItem.exchange_rate || 1.0,
           total_amount: agreementItem.total_amount,
@@ -574,6 +659,64 @@ const ProcurementManager: React.FC = () => {
               notes: 'Sample notes'
             }
           ]
+        };
+        setEditingItem(transformedItem as unknown as PurchaseAgreement | PurchaseOrder | PurchaseRequisition);
+      }
+    } else if (activeTab === 'orders') {
+      const orderItem = item as PurchaseOrder;
+      
+      // Fetch the complete purchase order data including lines
+      try {
+        const fullOrder = await apiService.getPurchaseOrder(orderItem.header_id);
+        
+        // Transform the data to match form expectations
+        const transformedItem = {
+          header_id: fullOrder.header_id || orderItem.header_id,
+          po_number: fullOrder.po_number || orderItem.po_number,
+          po_type: fullOrder.po_type || orderItem.po_type || 'STANDARD',
+          supplier_id: fullOrder.supplier_id || orderItem.supplier_id,
+          supplier_site_id: (fullOrder as Record<string, unknown>).supplier_site_id || (orderItem as Record<string, unknown>).supplier_site_id,
+          supplier_site_name: (fullOrder as Record<string, unknown>).supplier_site_name || (orderItem as Record<string, unknown>).supplier_site_name,
+          party_id: (fullOrder as Record<string, unknown>).party_id || (orderItem as Record<string, unknown>).party_id,
+          buyer_id: fullOrder.buyer_id || orderItem.buyer_id,
+          requisition_id: fullOrder.requisition_id || orderItem.requisition_id,
+          po_date: formatDateForForm(fullOrder.po_date || orderItem.po_date),
+          need_by_date: formatDateForForm(fullOrder.need_by_date || orderItem.need_by_date),
+          currency_code: fullOrder.currency_code || orderItem.currency_code || 'USD',
+          exchange_rate: fullOrder.exchange_rate || orderItem.exchange_rate || 1.0,
+          total_amount: fullOrder.total_amount || orderItem.total_amount || 0,
+          amount_remaining: fullOrder.amount_remaining || orderItem.amount_remaining || fullOrder.total_amount || orderItem.total_amount || 0,
+          description: fullOrder.description || orderItem.description || '',
+          notes: fullOrder.notes || orderItem.notes || '',
+          status: fullOrder.status || orderItem.status || 'DRAFT',
+          approval_status: fullOrder.approval_status || orderItem.approval_status || 'PENDING',
+          lines: fullOrder.lines || []
+        };
+        
+        setEditingItem(transformedItem as unknown as PurchaseAgreement | PurchaseOrder | PurchaseRequisition);
+      } catch (error) {
+        console.error('Error fetching full purchase order data:', error);
+        // Fallback to basic data if API call fails
+        const transformedItem = {
+          header_id: orderItem.header_id,
+          po_number: orderItem.po_number,
+          po_type: orderItem.po_type || 'STANDARD',
+          supplier_id: orderItem.supplier_id,
+          supplier_site_id: (orderItem as Record<string, unknown>).supplier_site_id,
+          party_id: (orderItem as Record<string, unknown>).party_id,
+          buyer_id: orderItem.buyer_id,
+          requisition_id: orderItem.requisition_id,
+          po_date: formatDateForForm(orderItem.po_date),
+          need_by_date: formatDateForForm(orderItem.need_by_date),
+          currency_code: orderItem.currency_code || 'USD',
+          exchange_rate: orderItem.exchange_rate || 1.0,
+          total_amount: orderItem.total_amount || 0,
+          amount_remaining: orderItem.amount_remaining || orderItem.total_amount || 0,
+          description: orderItem.description || '',
+          notes: orderItem.notes || '',
+          status: orderItem.status || 'DRAFT',
+          approval_status: orderItem.approval_status || 'PENDING',
+          lines: []
         };
         setEditingItem(transformedItem as unknown as PurchaseAgreement | PurchaseOrder | PurchaseRequisition);
       }
@@ -613,14 +756,26 @@ const ProcurementManager: React.FC = () => {
         ]
       };
       setEditingItem(transformedItem as unknown as PurchaseAgreement | PurchaseOrder | PurchaseRequisition);
+    } else if (activeTab === 'grns') {
+      setEditingItem(item);
     } else {
-    setEditingItem(item);
+      setEditingItem(item);
     }
     setShowForm(true);
   };
 
   const resetForms = () => {
-    // No form state to reset since we're using the PurchaseAgreementForm component
+    // Clear all form-related state
+    setEditingItem(null);
+    setViewingItem(null);
+    setShowForm(false);
+    setShowViewForm(false);
+  };
+
+  const handleTabChange = (value: string) => {
+    // Clear any open forms when switching tabs
+    resetForms();
+    setActiveTab(value as ProcurementType);
   };
 
   const getStatusBadge = (status: string) => {
@@ -683,9 +838,23 @@ const ProcurementManager: React.FC = () => {
     });
   };
 
+  const getFilteredGRNs = () => {
+    if (!Array.isArray(grns)) return [];
+    
+    return grns.filter(grn => {
+      const matchesSearch = grn.receipt_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          grn.notes?.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesStatus = statusFilter === 'all' || grn.status?.toLowerCase() === statusFilter.toLowerCase();
+      
+      return matchesSearch && matchesStatus;
+    });
+  };
+
   const filteredAgreements = getFilteredAgreements();
   const filteredOrders = getFilteredOrders();
   const filteredRequisitions = getFilteredRequisitions();
+  const filteredGRNs = getFilteredGRNs();
 
   // Add loading state
   if (loading) {
@@ -722,7 +891,7 @@ const ProcurementManager: React.FC = () => {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Agreements</CardTitle>
@@ -755,6 +924,16 @@ const ProcurementManager: React.FC = () => {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total GRNs</CardTitle>
+            <Package className="w-4 h-4 text-gray-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{grns.length}</div>
+            <p className="text-xs text-gray-500 mt-1">Goods received notes</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Suppliers</CardTitle>
             <Building2 className="w-4 h-4 text-gray-600" />
           </CardHeader>
@@ -765,7 +944,7 @@ const ProcurementManager: React.FC = () => {
         </Card>
       </div>
 
-      <Tabs defaultValue="agreements" className="space-y-6">
+      <Tabs defaultValue="agreements" value={activeTab} onValueChange={handleTabChange} className="space-y-6">
         <TabsList>
           <TabsTrigger value="agreements" className="flex items-center gap-2">
             <FileText className="w-4 h-4" />
@@ -778,6 +957,10 @@ const ProcurementManager: React.FC = () => {
           <TabsTrigger value="requisitions" className="flex items-center gap-2">
             <Receipt className="w-4 h-4" />
             Purchase Requisitions
+          </TabsTrigger>
+          <TabsTrigger value="grns" className="flex items-center gap-2">
+            <Package className="w-4 h-4" />
+            Goods Received Notes
           </TabsTrigger>
         </TabsList>
 
@@ -838,7 +1021,7 @@ const ProcurementManager: React.FC = () => {
                       <SelectItem value="all">All Suppliers</SelectItem>
                       {suppliers.map(supplier => (
                         <SelectItem key={supplier.supplier_id} value={supplier.supplier_id.toString()}>
-                          {supplier.party_name}
+                          {supplier.supplier_name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1014,7 +1197,7 @@ const ProcurementManager: React.FC = () => {
                       <SelectItem value="all">All Suppliers</SelectItem>
                       {suppliers.map(supplier => (
                         <SelectItem key={supplier.supplier_id} value={supplier.supplier_id.toString()}>
-                          {supplier.party_name}
+                          {supplier.supplier_name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1114,6 +1297,164 @@ const ProcurementManager: React.FC = () => {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleDelete(order.header_id)}
+                                className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
+                                title="Delete"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="grns">
+          <div className="flex justify-end mb-4 gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => {/* Export functionality */}}
+              className="flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Export
+            </Button>
+            <Button 
+              onClick={() => {
+                setActiveTab('grns');
+                setShowForm(true);
+                setEditingItem(null);
+              }}
+              className="flex items-center gap-2"
+            >
+              <Package className="w-4 h-4" />
+              Create GRN
+            </Button>
+          </div>
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col md:flex-row md:items-center gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <Input
+                    placeholder="Search GRNs..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-gray-500" />
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="draft">Draft</SelectItem>
+                      <SelectItem value="confirmed">Confirmed</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold">Goods Received Notes</h3>
+                <p className="text-sm text-gray-500">
+                  Showing {filteredGRNs.length} of {grns.length} GRNs
+                </p>
+              </div>
+              {loading ? (
+                <div className="text-center py-8">
+                  <div className="text-gray-500">Loading GRNs...</div>
+                </div>
+              ) : grns.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="text-gray-500">No GRNs found</div>
+                  <Button 
+                    onClick={() => {
+                      setActiveTab('grns');
+                      setShowForm(true);
+                      setEditingItem(null);
+                    }} 
+                    className="mt-4"
+                    variant="outline"
+                  >
+                    Create your first GRN
+                  </Button>
+                </div>
+              ) : filteredGRNs.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="text-gray-500">No GRNs match your search criteria</div>
+                  <Button 
+                    onClick={() => {
+                      setSearchTerm("");
+                      setStatusFilter("all");
+                    }} 
+                    className="mt-4"
+                    variant="outline"
+                  >
+                    Clear filters
+                  </Button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-4 font-semibold">GRN #</th>
+                        <th className="text-left py-3 px-4 font-semibold">PO Number</th>
+                        <th className="text-center py-3 px-4 font-semibold">Receipt Date</th>
+                        <th className="text-center py-3 px-4 font-semibold">Receipt Type</th>
+                        <th className="text-right py-3 px-4 font-semibold">Total Amount</th>
+                        <th className="text-center py-3 px-4 font-semibold">Status</th>
+                        <th className="text-center py-3 px-4 font-semibold">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredGRNs.map((grn) => (
+                        <tr key={grn.receipt_id} className="border-b hover:bg-gray-50">
+                          <td className="py-3 px-4 font-medium">{grn.receipt_number}</td>
+                          <td className="py-3 px-4">{grn.header_id}</td>
+                          <td className="py-3 px-4 text-center">
+                            {grn.receipt_date ? new Date(grn.receipt_date).toLocaleDateString() : '-'}
+                          </td>
+                          <td className="py-3 px-4 text-center">{grn.receipt_type}</td>
+                          <td className="py-3 px-4 text-right font-semibold">
+                            ${typeof grn.total_amount === 'number' ? grn.total_amount.toFixed(2) : '0.00'}
+                          </td>
+                          <td className="py-3 px-4 text-center">{getStatusBadge(grn.status)}</td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="flex items-center justify-center space-x-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleView(grn)}
+                                className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700"
+                                title="View Details"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleEdit(grn)}
+                                className="h-8 w-8 p-0"
+                                title="Edit"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDelete(grn.receipt_id)}
                                 className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
                                 title="Delete"
                               >
@@ -1317,28 +1658,66 @@ const ProcurementManager: React.FC = () => {
             </div>
             
             {activeTab === 'agreements' ? (
-              <PurchaseAgreementForm
-                agreement={editingItem as PurchaseAgreement | null}
-                suppliers={suppliers}
-                users={parties}
-                onSave={() => {
-                  setShowForm(false);
-                  setEditingItem(null);
-                  resetForms();
-                  fetchData();
-                }}
-                onCancel={() => {
-                  setShowForm(false);
-                  setEditingItem(null);
-                  resetForms();
-                }}
-              />
+              loading ? (
+                <div className="text-center py-8">
+                  <div className="text-gray-500">Loading form data...</div>
+                </div>
+              ) : (
+                <PurchaseAgreementForm
+                  key={`agreement-${(editingItem as PurchaseAgreement)?.agreement_id || 'new'}`}
+                  agreement={editingItem as PurchaseAgreement | null}
+                  suppliers={suppliers || []}
+                  users={users || []}
+                  onSave={() => {
+                    setShowForm(false);
+                    setEditingItem(null);
+                    resetForms();
+                    fetchData();
+                  }}
+                  onCancel={() => {
+                    setShowForm(false);
+                    setEditingItem(null);
+                    resetForms();
+                  }}
+                />
+              )
             ) : activeTab === 'orders' ? (
-              <PurchaseOrderForm
-                purchaseOrder={editingItem as PurchaseOrder | null}
-                suppliers={suppliers}
-                users={parties}
-                requisitions={requisitions as unknown as Array<{requisition_id: number; requisition_number: string; description: string; status: string}>}
+              loading ? (
+                <div className="text-center py-8">
+                  <div className="text-gray-500">Loading form data...</div>
+                </div>
+              ) : (
+                <PurchaseOrderForm
+                  key={`order-${(editingItem as PurchaseOrder)?.header_id || 'new'}`}
+                  purchaseOrder={editingItem as PurchaseOrder | null}
+                  suppliers={suppliers || []}
+                  users={users || []}
+                  requisitions={requisitions as unknown as Array<{requisition_id: number; requisition_number: string; description: string; status: string}>}
+                  onSave={() => {
+                    setShowForm(false);
+                    setEditingItem(null);
+                    resetForms();
+                    fetchData();
+                  }}
+                  onCancel={() => {
+                    setShowForm(false);
+                    setEditingItem(null);
+                    resetForms();
+                  }}
+                />
+              )
+            ) : activeTab === 'grns' ? (
+              <GRNForm
+                key={`grn-${(editingItem as GRN)?.receipt_id || 'new'}`}
+                grn={editingItem as GRN | null}
+                purchaseOrders={orders.map(order => ({
+                  header_id: order.header_id || 0,
+                  po_number: order.po_number || '',
+                  supplier_name: order.supplier_name || '',
+                  po_date: order.po_date || '',
+                  total_amount: order.total_amount || 0,
+                  status: order.status || ''
+                }))}
                 onSave={() => {
                   setShowForm(false);
                   setEditingItem(null);
@@ -1353,8 +1732,9 @@ const ProcurementManager: React.FC = () => {
               />
             ) : (
               <PurchaseRequisitionForm
+                key={`requisition-${activeTab === 'requisitions' ? (editingItem as PurchaseRequisition)?.requisition_id || 'new' : 'new'}`}
                 requisition={editingItem as PurchaseRequisition | null}
-                users={parties}
+                users={users}
                 onSave={() => {
                   setShowForm(false);
                   setEditingItem(null);
@@ -1433,7 +1813,7 @@ const ProcurementManager: React.FC = () => {
                         <div>
                           <Label className="text-sm font-medium text-gray-600">Supplier</Label>
                           <p className="text-sm mt-1">
-                            {suppliers.find(s => s.profile_id === (viewingItem as PurchaseAgreement).supplier_id)?.party_name || 'Unknown'}
+                            {suppliers.find(s => s.supplier_id === (viewingItem as PurchaseAgreement).supplier_id)?.supplier_name || 'Unknown'}
                           </p>
                         </div>
                         <div>

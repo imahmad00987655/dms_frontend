@@ -18,6 +18,7 @@ import apInvoicesRoutes from './routes/apInvoices.js';
 import apPaymentsRoutes from './routes/apPayments.js';
 import customerSupplierRoutes from './routes/customerSupplier.js';
 import procurementRoutes from './routes/procurement.js';
+import partiesRoutes from './routes/parties.js';
 
 
 // Load environment variables
@@ -158,32 +159,53 @@ app.get('/test-suppliers', async (req, res) => {
   }
 });
 
-// Procurement suppliers endpoint (no auth)
+// Procurement suppliers endpoint (no auth) - Fetch existing suppliers with party info
 app.get('/procurement-suppliers', async (req, res) => {
   try {
-    console.log('Fetching procurement suppliers...');
+    console.log('Fetching existing suppliers with party information...');
     const mysql = await import('mysql2/promise');
     const { dbConfig } = await import('./config/database.js');
     
     const connection = await mysql.default.createConnection(dbConfig);
     
+    // Fetch existing suppliers (ZIC, Steel Company, Akhter) with their party information
     const [suppliers] = await connection.execute(`
       SELECT 
-        sp.profile_id as supplier_id,
-        p.party_name as supplier_name,
+        sp.supplier_id,
+        sp.supplier_name,
         sp.supplier_number,
         sp.supplier_type,
         sp.supplier_class,
         sp.supplier_category,
-        'ACTIVE' as status
-      FROM hz_supplier_profiles sp
-      JOIN hz_parties p ON sp.party_id = p.party_id
-      ORDER BY p.party_name
+        sp.party_id,
+        p.party_name,
+        sp.status as supplier_status,
+        'ACTIVE' as status,
+        (
+          SELECT COUNT(*) 
+          FROM party_sites ps 
+          WHERE ps.party_id = sp.party_id AND ps.status = 'ACTIVE'
+        ) as sites_count
+      FROM ap_suppliers sp
+      JOIN parties p ON sp.party_id = p.party_id
+      WHERE sp.status = 'ACTIVE'
+      ORDER BY sp.supplier_name
     `);
+    
+    console.log('Raw suppliers data from database:', suppliers);
+    
+    // Ensure we're returning the correct supplier names
+    const processedSuppliers = suppliers.map(supplier => ({
+      ...supplier,
+      supplier_name: supplier.supplier_name, // This should be the actual supplier name
+      display_name: `${supplier.supplier_name} (${supplier.supplier_number})` // Enhanced display name
+    }));
+    
+    console.log('Processed suppliers data:', processedSuppliers);
     
     await connection.end();
     
-    res.json(suppliers);
+    res.json(processedSuppliers);
   } catch (error) {
     console.error('Error fetching suppliers:', error);
     res.status(500).json({ error: 'Failed to fetch suppliers' });
@@ -198,6 +220,7 @@ app.post('/test-agreement', async (req, res) => {
     
     const {
       supplier_id,
+      site_id,
       description = '',
       lines = [],
       agreement_type = '',
@@ -222,17 +245,17 @@ app.post('/test-agreement', async (req, res) => {
     const connection = await mysql.default.createConnection(dbConfig);
     console.log('Database connection created successfully');
     
-    // Check if supplier exists in hz_supplier_profiles
+    // Check if supplier exists in ap_suppliers
     let supplierExists = false;
     try {
-      const [existingSuppliers] = await connection.execute('SELECT profile_id FROM hz_supplier_profiles WHERE profile_id = ?', [supplier_id]);
+      const [existingSuppliers] = await connection.execute('SELECT supplier_id FROM ap_suppliers WHERE supplier_id = ?', [supplier_id]);
       supplierExists = existingSuppliers.length > 0;
     } catch (error) {
       console.log('Error checking supplier:', error.message);
     }
     
     if (!supplierExists) {
-      console.log(`Supplier ${supplier_id} does not exist in hz_supplier_profiles, cannot create agreement`);
+      console.log(`Supplier ${supplier_id} does not exist in ap_suppliers, cannot create agreement`);
       await connection.end();
       return res.status(400).json({ 
         error: 'Supplier not found',
@@ -294,7 +317,7 @@ app.post('/test-agreement', async (req, res) => {
       finalAgreementNumber,  // agreement_number
       agreement_type,        // agreement_type
       supplier_id,          // supplier_id
-      1,                    // supplier_site_id (default)
+      site_id || 1,         // supplier_site_id (use provided site_id or default to 1)
       1,                    // buyer_id (default)
       agreement_date || today,                // agreement_date
       effective_start_date || today,                // effective_start_date
@@ -403,6 +426,7 @@ app.use('/api/customer-supplier', customerSupplierRoutes);
 
 // Procurement System Routes
 app.use('/api/procurement', procurementRoutes);
+app.use('/api/parties', partiesRoutes);
 
 
 // 404 handler

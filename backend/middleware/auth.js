@@ -31,6 +31,7 @@ export const authenticateToken = async (req, res, next) => {
 
     req.user = {
       id: users[0].id,
+      userId: users[0].id, // Add this for compatibility
       email: users[0].email,
       role: users[0].role
     };

@@ -53,12 +53,68 @@ const generateDocumentNumber = async (connection, documentType) => {
 
 // Helper function to log audit trail
 const logAuditTrail = async (connection, userId, action, documentType, documentId, oldValues = null, newValues = null) => {
-  await connection.execute(`
-    INSERT INTO po_audit_log (user_id, action, document_type, document_id, old_values, new_values, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, NOW())
-  `, [userId, action, documentType, documentId, 
-      oldValues ? JSON.stringify(oldValues) : null,
-      newValues ? JSON.stringify(newValues) : null]);
+  try {
+    console.log('🔍 logAuditTrail called with:', { userId, action, documentType, documentId });
+    
+    // Helper function to safely convert any value to JSON-safe format
+    const safeJSONStringify = (value) => {
+      try {
+        if (value === null || value === undefined) {
+          return null;
+        }
+        
+        // If it's a primitive, return as is
+        if (typeof value !== 'object') {
+          return value;
+        }
+        
+        // If it's an object, clean it recursively
+        const cleanObject = (obj) => {
+          if (!obj || typeof obj !== 'object') return obj;
+          
+          if (Array.isArray(obj)) {
+            return obj.map(item => cleanObject(item));
+          }
+          
+          const cleaned = {};
+          for (const [key, val] of Object.entries(obj)) {
+            if (val === undefined) {
+              cleaned[key] = null;
+            } else if (val === '') {
+              cleaned[key] = null;
+            } else if (val && typeof val === 'object') {
+              cleaned[key] = cleanObject(val);
+            } else {
+              cleaned[key] = val;
+            }
+          }
+          return cleaned;
+        };
+        
+        const cleaned = cleanObject(value);
+        return JSON.stringify(cleaned);
+      } catch (error) {
+        console.error('🔍 Error in safeJSONStringify:', error);
+        return null;
+      }
+    };
+
+    const oldValuesJSON = safeJSONStringify(oldValues);
+    const newValuesJSON = safeJSONStringify(newValues);
+    
+    console.log('🔍 oldValuesJSON:', oldValuesJSON);
+    console.log('🔍 newValuesJSON:', newValuesJSON);
+
+    await connection.execute(`
+      INSERT INTO po_audit_log (user_id, action, document_type, document_id, old_values, new_values, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, NOW())
+    `, [userId, action, documentType, documentId, oldValuesJSON, newValuesJSON]);
+    
+    console.log('🔍 Audit trail logged successfully');
+  } catch (error) {
+    console.error('🔍 Error in logAuditTrail:', error);
+    // Don't throw error, just log it to avoid breaking the main operation
+  }
 };
 
 // Middleware to verify JWT token
@@ -196,13 +252,16 @@ router.post('/agreements/:agreementId/lines', async (req, res) => {
     await connection.execute(`
       INSERT INTO po_agreement_lines (
         line_id, agreement_id, line_number, item_code, item_name, description,
-        category, uom, quantity, unit_price, line_amount, min_quantity,
-        max_quantity, need_by_date, suggested_supplier, suggested_supplier_id, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        category, uom, quantity, unit_price, line_amount, tax_rate, tax_amount,
+        gst_rate, gst_amount, min_quantity, max_quantity, need_by_date, 
+        suggested_supplier, suggested_supplier_id, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       lineId, req.params.agreementId, line_number, item_code, item_name, description,
-      category, uom, quantity, unit_price, line_amount, min_quantity,
-      max_quantity, need_by_date, suggested_supplier, suggested_supplier_id, notes
+      category, uom, quantity, unit_price, line_amount, 
+      req.body.tax_rate || 0, req.body.tax_amount || 0,
+      req.body.gst_rate || 0, req.body.gst_amount || 0,
+      min_quantity, max_quantity, need_by_date, suggested_supplier, suggested_supplier_id, notes
     ]);
     
     await connection.end();
@@ -223,18 +282,18 @@ router.get('/agreements', async (req, res) => {
     const connection = await mysql.createConnection(dbConfig);
     const { search, status, supplier_id } = req.query;
     
-    console.log('🔍 Using UPDATED query with hz_supplier_profiles');
+    console.log('🔍 Using UPDATED query with ap_suppliers');
     let query = `
       SELECT 
         pa.*,
-        p.party_name as supplier_name,
+        sp.supplier_name,
         COALESCE(ps.site_name, 'Default Site') as supplier_site_name,
         u1.first_name as buyer_name,
         u2.first_name as created_by_name
       FROM po_agreements pa
-      JOIN hz_supplier_profiles sp ON pa.supplier_id = sp.profile_id
-      JOIN hz_parties p ON sp.party_id = p.party_id
-      LEFT JOIN hz_party_sites ps ON pa.supplier_site_id = ps.site_id
+      JOIN ap_suppliers sp ON pa.supplier_id = sp.supplier_id
+      JOIN parties p ON sp.party_id = p.party_id
+      LEFT JOIN ap_supplier_sites ps ON pa.supplier_site_id = ps.site_id
       JOIN users u1 ON pa.buyer_id = u1.id
       JOIN users u2 ON pa.created_by = u2.id
       WHERE 1=1
@@ -279,6 +338,7 @@ router.post('/test-agreement', async (req, res) => {
     
     const {
       supplier_id,
+      site_id,
       description = '',
       lines = []
     } = req.body;
@@ -350,7 +410,7 @@ router.post('/test-agreement', async (req, res) => {
       finalAgreementNumber,  // agreement_number
       agreement_type,        // agreement_type
       supplier_id,          // supplier_id
-      1,                    // supplier_site_id (default)
+      site_id || 1,         // supplier_site_id (use provided site_id or default to 1)
       buyer_id,             // buyer_id
       agreement_date || today,                // agreement_date
       effective_start_date || today,                // effective_start_date
@@ -448,6 +508,7 @@ router.post('/agreements', async (req, res) => {
       agreement_number,
       agreement_type = '',
       supplier_id,
+      site_id,
       buyer_id = 1,
       description = '',
       lines = [],
@@ -505,6 +566,19 @@ router.post('/agreements', async (req, res) => {
     });
     
     console.log('About to insert agreement header...');
+    // Get party_id from supplier_id
+    const [supplierResult] = await connection.execute(
+      'SELECT party_id FROM ap_suppliers WHERE supplier_id = ?',
+      [supplier_id]
+    );
+    
+    if (supplierResult.length === 0) {
+      await connection.end();
+      return res.status(400).json({ error: 'Supplier not found' });
+    }
+    
+    const party_id = supplierResult[0].party_id;
+    
     // Insert agreement header with minimal required fields
     const result = await connection.execute(`
       INSERT INTO po_agreements (
@@ -512,6 +586,7 @@ router.post('/agreements', async (req, res) => {
         agreement_number, 
         agreement_type, 
         supplier_id, 
+        party_id,
         supplier_site_id,
         buyer_id, 
         agreement_date, 
@@ -527,13 +602,14 @@ router.post('/agreements', async (req, res) => {
         created_by,
         status,
         approval_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       agreementId,           // agreement_id
       finalAgreementNumber,  // agreement_number
       agreement_type,        // agreement_type
       supplier_id,          // supplier_id
-      1,                    // supplier_site_id (default)
+      party_id,             // party_id
+      site_id || 1,         // supplier_site_id (use provided site_id or default to 1)
       buyer_id,             // buyer_id
       agreement_date || today,                // agreement_date
       effective_start_date || today,                // effective_start_date
@@ -628,14 +704,14 @@ router.get('/agreements/:id', async (req, res) => {
     const [rows] = await connection.execute(`
       SELECT 
         pa.*,
-        p.party_name as supplier_name,
+        sp.supplier_name,
         COALESCE(ps.site_name, 'Default Site') as supplier_site_name,
         u1.first_name as buyer_name,
         u2.first_name as created_by_name
       FROM po_agreements pa
-      JOIN hz_supplier_profiles sp ON pa.supplier_id = sp.profile_id
-      JOIN hz_parties p ON sp.party_id = p.party_id
-      LEFT JOIN hz_party_sites ps ON pa.supplier_site_id = ps.site_id
+      JOIN ap_suppliers sp ON pa.supplier_id = sp.supplier_id
+      JOIN parties p ON sp.party_id = p.party_id
+      LEFT JOIN ap_supplier_sites ps ON pa.supplier_site_id = ps.site_id
       JOIN users u1 ON pa.buyer_id = u1.id
       JOIN users u2 ON pa.created_by = u2.id
       WHERE pa.agreement_id = ?
@@ -661,7 +737,7 @@ router.post('/create-agreement', async (req, res) => {
     console.log('Request body:', JSON.stringify(req.body, null, 2));
     
     // Get basic data from request
-    const { supplier_id, description = 'New Agreement', lines = [] } = req.body;
+    const { supplier_id, site_id, description = 'New Agreement', lines = [] } = req.body;
     
     if (!supplier_id) {
       return res.status(400).json({ error: 'supplier_id is required' });
@@ -709,7 +785,7 @@ router.post('/create-agreement', async (req, res) => {
       agreementNumber,       // agreement_number
       'BLANKET',            // agreement_type
       supplier_id,          // supplier_id
-      1,                    // supplier_site_id
+      site_id || 1,         // supplier_site_id (use provided site_id or default to 1)
       1,                    // buyer_id
       today,                // agreement_date
       today,                // effective_start_date
@@ -736,13 +812,15 @@ router.post('/create-agreement', async (req, res) => {
         await connection.execute(`
           INSERT INTO po_agreement_lines (
             line_id, agreement_id, line_number, item_code, item_name, description,
-            category, uom, quantity, unit_price, line_amount, min_quantity,
-            max_quantity, need_by_date, suggested_supplier, suggested_supplier_id, notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            category, uom, quantity, unit_price, line_amount, tax_rate, tax_amount,
+            gst_rate, gst_amount, min_quantity, max_quantity, need_by_date, 
+            suggested_supplier, suggested_supplier_id, notes
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           lineId, agreementId, i + 1, line.item_code || '', line.item_name || '',
           line.description || '', line.category || '', line.uom || 'EACH',
           line.quantity || 1, line.unit_price || 0, line.line_amount || 0,
+          line.tax_rate || 0, line.tax_amount || 0, line.gst_rate || 0, line.gst_amount || 0,
           line.min_quantity || null, line.max_quantity || null,
           line.need_by_date || null, line.suggested_supplier || '',
           line.suggested_supplier_id || null, line.notes || ''
@@ -797,11 +875,27 @@ router.put('/agreements/:id', authenticateToken, async (req, res) => {
     const oldValues = currentResult[0];
     
     const {
-      agreement_type, supplier_id, supplier_site_id, buyer_id,
+      agreement_type, supplier_id, site_id, buyer_id,
       agreement_date, effective_start_date, effective_end_date,
       currency_code, exchange_rate, total_amount, payment_terms_id,
-      description, notes, status
+      description, notes, status, approval_status
     } = req.body;
+
+    // Map site_id to supplier_site_id for database compatibility
+    const supplier_site_id = site_id;
+    
+    // Handle approval status changes
+    let approvedBy = null;
+    let approvedAt = null;
+    
+    if (approval_status === 'APPROVED') {
+      approvedBy = req.user.id;
+      approvedAt = new Date();
+    } else if (approval_status === 'REJECTED' || approval_status === 'PENDING') {
+      // Reset approval info when status changes away from approved
+      approvedBy = null;
+      approvedAt = null;
+    }
     
     // Convert undefined values to null for MySQL
     const params = [
@@ -819,6 +913,9 @@ router.put('/agreements/:id', authenticateToken, async (req, res) => {
       description || null,
       notes || null,
       status || null,
+      approval_status || null,
+      approvedBy,
+      approvedAt,
       req.params.id
     ];
     
@@ -827,12 +924,37 @@ router.put('/agreements/:id', authenticateToken, async (req, res) => {
         agreement_type = ?, supplier_id = ?, supplier_site_id = ?, buyer_id = ?,
         agreement_date = ?, effective_start_date = ?, effective_end_date = ?,
         currency_code = ?, exchange_rate = ?, total_amount = ?, payment_terms_id = ?,
-        description = ?, notes = ?, status = ?, updated_at = NOW()
+        description = ?, notes = ?, status = ?, approval_status = ?, 
+        approved_by = ?, approved_at = ?, updated_at = NOW()
       WHERE agreement_id = ?
     `, params);
     
     // Log audit trail
-    await logAuditTrail(connection, req.user.id, 'UPDATE', 'AGREEMENT', req.params.id, oldValues, req.body);
+    console.log('🔍 About to log audit trail with cleaned values');
+    console.log('🔍 req.body before cleaning:', req.body);
+    
+    // Clean the request body to remove any undefined values
+    const cleanRequestBody = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      const cleaned = {};
+      for (const [key, value] of Object.entries(obj)) {
+        if (value === undefined) {
+          cleaned[key] = null;
+        } else if (value === '') {
+          cleaned[key] = null;
+        } else if (value && typeof value === 'object') {
+          cleaned[key] = cleanRequestBody(value);
+        } else {
+          cleaned[key] = value;
+        }
+      }
+      return cleaned;
+    };
+    
+    const cleanedNewValues = req.body ? cleanRequestBody(req.body) : null;
+    console.log('🔍 cleanedNewValues:', cleanedNewValues);
+    
+    await logAuditTrail(connection, req.user.id, 'UPDATE', 'AGREEMENT', req.params.id, oldValues, cleanedNewValues);
     
     await connection.end();
     res.json({ message: 'Purchase agreement updated successfully' });
@@ -1208,13 +1330,17 @@ router.get('/purchase-orders/:id', async (req, res) => {
         pa.agreement_number
       FROM po_headers ph
       JOIN ap_suppliers s ON ph.supplier_id = s.supplier_id
-      JOIN ap_supplier_sites ss ON ph.supplier_site_id = ss.site_id
+      LEFT JOIN ap_supplier_sites ss ON ph.supplier_site_id = ss.site_id
       JOIN users u1 ON ph.buyer_id = u1.id
       JOIN users u2 ON ph.created_by = u2.id
       LEFT JOIN po_requisitions pr ON ph.requisition_id = pr.requisition_id
       LEFT JOIN po_agreements pa ON ph.agreement_id = pa.agreement_id
       WHERE ph.header_id = ?
     `, [req.params.id]);
+    
+    console.log('🔍 Backend - Purchase order query result:', headerRows[0]);
+    console.log('🔍 Backend - supplier_site_id:', headerRows[0]?.supplier_site_id);
+    console.log('🔍 Backend - supplier_site_name:', headerRows[0]?.supplier_site_name);
     
     if (headerRows.length === 0) {
       await connection.end();
@@ -1243,57 +1369,257 @@ router.get('/purchase-orders/:id', async (req, res) => {
 });
 
 // Create purchase order
-router.post('/purchase-orders', requireAdmin, async (req, res) => {
+router.post('/purchase-orders', authenticateToken, async (req, res) => {
+  let connection;
   try {
-    const connection = await mysql.createConnection(dbConfig);
+    connection = await mysql.createConnection(dbConfig);
     
-    // Get next PO ID and generate PO number
-    const headerId = await getNextSequenceValue(connection, 'PO_HEADER_ID_SEQ');
-    const poNumber = await generateDocumentNumber(connection, 'PURCHASE_ORDER');
+    // Start transaction
+    await connection.beginTransaction();
     
     const {
-      po_type, supplier_id, supplier_site_id, buyer_id, requisition_id, agreement_id,
-      po_date, need_by_date, currency_code, exchange_rate, payment_terms_id,
+      po_number, po_type, supplier_id, supplier_site_id, buyer_id, requisition_id, agreement_id,
+      po_date, order_date, need_by_date, currency_code, exchange_rate, payment_terms_id,
       description, notes, lines
     } = req.body;
     
-    // Calculate totals from lines
-    const subtotal = lines.reduce((sum, line) => sum + (line.line_amount || 0), 0);
-    const taxAmount = lines.reduce((sum, line) => sum + (line.tax_amount || 0), 0);
-    const totalAmount = subtotal + taxAmount;
+    // Use po_date if order_date is not provided
+    const effectiveDate = po_date || order_date;
     
-    await connection.execute(`
-      INSERT INTO po_headers (
-        header_id, po_number, po_type, supplier_id, supplier_site_id, buyer_id,
-        requisition_id, agreement_id, po_date, need_by_date, currency_code,
-        exchange_rate, subtotal, tax_amount, total_amount, payment_terms_id,
-        description, notes, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [headerId, poNumber, po_type, supplier_id, supplier_site_id, buyer_id,
-        requisition_id, agreement_id, po_date, need_by_date, currency_code,
-        exchange_rate, subtotal, taxAmount, totalAmount, payment_terms_id,
-        description, notes, req.user.id]);
+    // Sanitize all parameters to prevent undefined values
+    const sanitizedParams = {
+      po_type: po_type || 'STANDARD',
+      supplier_id: supplier_id || 0,
+      supplier_site_id: supplier_site_id || supplier_id || 0,
+      buyer_id: buyer_id || 0,
+      requisition_id: requisition_id === undefined || requisition_id === '' ? null : requisition_id,
+      agreement_id: agreement_id === undefined || agreement_id === '' ? null : agreement_id,
+      po_date: effectiveDate || new Date().toISOString().split('T')[0],
+      need_by_date: need_by_date || effectiveDate || new Date().toISOString().split('T')[0],
+      currency_code: currency_code || 'USD',
+      exchange_rate: exchange_rate || 1.0,
+      payment_terms_id: payment_terms_id || 30,
+      description: description || '',
+      notes: notes || ''
+    };
+    
+    // Additional validation to ensure no undefined values
+    Object.keys(sanitizedParams).forEach(key => {
+      if (sanitizedParams[key] === undefined) {
+        console.error(`Parameter ${key} is still undefined after sanitization`);
+        sanitizedParams[key] = null;
+      }
+    });
+    
+    // Get next PO ID and generate PO number (simplified)
+    console.log('About to query sequence PO_HEADER_ID_SEQ');
+    const [seqResult] = await connection.execute(
+      'SELECT current_value FROM ar_sequences WHERE sequence_name = ?',
+      ['PO_HEADER_ID_SEQ']
+    );
+    console.log('Sequence query result:', seqResult);
+    console.log('Sequence result length:', seqResult.length);
+    if (seqResult.length === 0) {
+      throw new Error('Sequence PO_HEADER_ID_SEQ not found');
+    }
+    const headerId = seqResult[0].current_value;
+    console.log('Current sequence value:', headerId);
+    
+    // Increment sequence first to avoid conflicts
+    await connection.execute(
+      'UPDATE ar_sequences SET current_value = current_value + 1 WHERE sequence_name = ?',
+      ['PO_HEADER_ID_SEQ']
+    );
+    console.log('Sequence incremented, using headerId:', headerId);
+    
+    // Use frontend-provided PO number if available, otherwise generate one
+    let poNumber;
+    if (po_number && po_number.trim() !== '') {
+      // Use the PO number provided by the frontend
+      poNumber = po_number.trim();
+      console.log('Using frontend-provided PO number:', poNumber);
+    } else {
+      // Generate PO number from database sequence
+      const [docResult] = await connection.execute(
+        'SELECT prefix, suffix, next_number, number_format FROM po_document_numbers WHERE document_type = ? AND is_active = TRUE LIMIT 1',
+        ['PURCHASE_ORDER']
+      );
+      if (docResult.length === 0) {
+        throw new Error('Document number configuration not found for PURCHASE_ORDER');
+      }
+      const config = docResult[0];
+      const formattedNumber = config.next_number.toString().padStart(config.number_format.length, '0');
+      poNumber = `${config.prefix}${formattedNumber}${config.suffix}`;
+      console.log('Generated PO number from database:', poNumber);
+    }
+    
+    // Validate that lines are provided
+    if (!lines || lines.length === 0) {
+      throw new Error('At least one line item is required');
+    }
+    
+    // Calculate totals from lines with proper decimal handling
+    const subtotal = Math.round((lines.reduce((sum, line) => sum + (parseFloat(line.line_amount) || 0), 0)) * 100) / 100;
+    const taxAmount = Math.round((lines.reduce((sum, line) => sum + (parseFloat(line.tax_amount) || 0), 0)) * 100) / 100;
+    const gstAmount = Math.round((lines.reduce((sum, line) => sum + (parseFloat(line.gst_amount) || 0), 0)) * 100) / 100;
+    const totalAmount = Math.round((subtotal + taxAmount + gstAmount) * 100) / 100;
+    
+    console.log('Create PO - Calculated amounts:', { subtotal, taxAmount, gstAmount, totalAmount });
+    
+    // Log sanitized parameters for debugging
+    console.log('Sanitized parameters for header insert:', sanitizedParams);
+    console.log('User info:', req.user);
+    console.log('User ID:', req.user?.id);
+    
+    // Ensure user ID is valid (check both id and userId for compatibility)
+    if (!req.user || (!req.user.id && !req.user.userId)) {
+      throw new Error('User not authenticated or user ID missing');
+    }
+    
+    // Use either id or userId
+    const userId = req.user.id || req.user.userId;
+    console.log('Using user ID:', userId);
+    
+    // Create the final insert values array
+    const insertValues = [
+      headerId, 
+      poNumber, 
+      sanitizedParams.po_type, 
+      sanitizedParams.supplier_id, 
+      sanitizedParams.supplier_site_id, 
+      sanitizedParams.buyer_id,
+      sanitizedParams.requisition_id, 
+      sanitizedParams.agreement_id, 
+      sanitizedParams.po_date, 
+      sanitizedParams.need_by_date, 
+      sanitizedParams.currency_code,
+      sanitizedParams.exchange_rate, 
+      subtotal, 
+      taxAmount, 
+      totalAmount, 
+      sanitizedParams.payment_terms_id,
+      sanitizedParams.description, 
+      sanitizedParams.notes, 
+      userId
+    ];
+    
+    console.log('Header insert values:', insertValues);
+    console.log('Checking for undefined values in insert array...');
+    insertValues.forEach((value, index) => {
+      if (value === undefined) {
+        console.error(`Value at index ${index} is undefined:`, value);
+      }
+    });
+    
+    // Insert header
+    try {
+      console.log('Attempting to insert header with values:', insertValues);
+      await connection.execute(`
+        INSERT INTO po_headers (
+          header_id, po_number, po_type, supplier_id, supplier_site_id, buyer_id,
+          requisition_id, agreement_id, po_date, need_by_date, currency_code,
+          exchange_rate, subtotal, tax_amount, total_amount, payment_terms_id,
+          description, notes, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, insertValues);
+      console.log('✅ Header inserted successfully');
+    } catch (insertError) {
+      console.error('❌ Error inserting header:', insertError);
+      console.error('Insert values that caused error:', insertValues);
+      throw insertError;
+    }
+    
+    // Update document number sequence only when generating new numbers
+    if (!po_number || po_number.trim() === '') {
+      await connection.execute(
+        'UPDATE po_document_numbers SET next_number = next_number + 1 WHERE document_type = ?',
+        ['PURCHASE_ORDER']
+      );
+      console.log('Updated document number sequence');
+    } else {
+      console.log('Skipping document number sequence update (using frontend PO number)');
+    }
     
     // Insert lines
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const lineId = await getNextSequenceValue(connection, 'PO_LINE_ID_SEQ');
+      
+      // Get next line ID and increment sequence atomically
+      const [lineSeqResult] = await connection.execute(
+        'SELECT current_value FROM ar_sequences WHERE sequence_name = ? FOR UPDATE',
+        ['PO_LINE_ID_SEQ']
+      );
+      const lineId = lineSeqResult[0].current_value;
+      
+      // Increment line sequence immediately after reading
+      await connection.execute(
+        'UPDATE ar_sequences SET current_value = current_value + 1 WHERE sequence_name = ?',
+        ['PO_LINE_ID_SEQ']
+      );
+      
+      // Sanitize line parameters with proper number formatting
+      const sanitizedLine = {
+        item_code: line.item_code || '',
+        item_name: line.item_name || '',
+        description: line.description || '',
+        category: line.category || '',
+        uom: line.uom || 'EA',
+        quantity: Math.round((parseFloat(line.quantity) || 0) * 100) / 100,
+        unit_price: Math.round((parseFloat(line.unit_price) || 0) * 100) / 100,
+        line_amount: Math.round((parseFloat(line.line_amount) || 0) * 100) / 100,
+        tax_rate: Math.round((parseFloat(line.tax_rate) || 0) * 100) / 100,
+        tax_amount: Math.round((parseFloat(line.tax_amount) || 0) * 100) / 100,
+        gst_rate: Math.round((parseFloat(line.gst_rate) || 0) * 100) / 100,
+        gst_amount: Math.round((parseFloat(line.gst_amount) || 0) * 100) / 100,
+        need_by_date: line.need_by_date || null,
+        promised_date: line.promised_date || null,
+        notes: line.notes || ''
+      };
+      
+      console.log(`Line ${i + 1} sanitized parameters:`, sanitizedLine);
+      
+      // Create line insert values array
+      const lineInsertValues = [
+        lineId, 
+        headerId, 
+        i + 1, 
+        sanitizedLine.item_code, 
+        sanitizedLine.item_name, 
+        sanitizedLine.description,
+        sanitizedLine.category, 
+        sanitizedLine.uom, 
+        sanitizedLine.quantity, 
+        sanitizedLine.unit_price, 
+        sanitizedLine.line_amount,
+        sanitizedLine.tax_rate, 
+        sanitizedLine.tax_amount, 
+        sanitizedLine.gst_rate, 
+        sanitizedLine.gst_amount, 
+        sanitizedLine.need_by_date, 
+        sanitizedLine.promised_date, 
+        sanitizedLine.notes
+      ];
+      
+      console.log(`Line ${i + 1} insert values:`, lineInsertValues);
+      console.log(`Checking for undefined values in line ${i + 1} insert array...`);
+      lineInsertValues.forEach((value, index) => {
+        if (value === undefined) {
+          console.error(`Line ${i + 1} value at index ${index} is undefined:`, value);
+        }
+      });
       
       await connection.execute(`
         INSERT INTO po_lines (
           line_id, header_id, line_number, item_code, item_name, description,
           category, uom, quantity, unit_price, line_amount, tax_rate, tax_amount,
-          need_by_date, promised_date, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [lineId, headerId, i + 1, line.item_code, line.item_name, line.description,
-          line.category, line.uom, line.quantity, line.unit_price, line.line_amount,
-          line.tax_rate, line.tax_amount, line.need_by_date, line.promised_date, line.notes]);
+          gst_rate, gst_amount, need_by_date, promised_date, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, lineInsertValues);
     }
     
-    // Log audit trail
-    await logAuditTrail(connection, req.user.id, 'CREATE', 'PURCHASE_ORDER', headerId, null, req.body);
+    // Commit transaction
+    await connection.commit();
     
-    await connection.end();
     res.status(201).json({ 
       message: 'Purchase order created successfully',
       header_id: headerId,
@@ -1301,14 +1627,52 @@ router.post('/purchase-orders', requireAdmin, async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating purchase order:', error);
-    res.status(500).json({ error: 'Failed to create purchase order' });
+    console.error('Error stack:', error.stack);
+    console.error('Request body:', req.body);
+    
+    // Rollback transaction on error
+    if (connection && connection.rollback) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error('Error rolling back transaction:', rollbackError);
+      }
+    }
+    
+    // Check if it's a database constraint error
+    if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+      return res.status(400).json({ 
+        error: 'Referenced record not found. Please check supplier, supplier site, or buyer information.' 
+      });
+    }
+    
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ 
+        error: 'Duplicate entry. This PO number may already exist.' 
+      });
+    }
+    
+    res.status(500).json({ error: 'Failed to create purchase order', details: error.message });
+  } finally {
+    // Ensure connection is closed even if there's an error
+    if (connection && connection.end) {
+      try {
+        await connection.end();
+      } catch (closeError) {
+        console.error('Error closing connection:', closeError);
+      }
+    }
   }
 });
 
 // Update purchase order
-router.put('/purchase-orders/:id', requireAdmin, async (req, res) => {
+router.put('/purchase-orders/:id', authenticateToken, async (req, res) => {
+  let connection;
   try {
-    const connection = await mysql.createConnection(dbConfig);
+    connection = await mysql.createConnection(dbConfig);
+    
+    // Start transaction
+    await connection.beginTransaction();
     
     // Get current values for audit trail
     const [currentResult] = await connection.execute(
@@ -1317,6 +1681,7 @@ router.put('/purchase-orders/:id', requireAdmin, async (req, res) => {
     );
     
     if (currentResult.length === 0) {
+      await connection.rollback();
       await connection.end();
       return res.status(404).json({ error: 'Purchase order not found' });
     }
@@ -1326,13 +1691,82 @@ router.put('/purchase-orders/:id', requireAdmin, async (req, res) => {
     const {
       po_type, supplier_id, supplier_site_id, buyer_id, requisition_id, agreement_id,
       po_date, need_by_date, currency_code, exchange_rate, payment_terms_id,
-      description, notes, lines, status
+      description, notes, lines, status, approval_status
     } = req.body;
     
-    // Calculate totals from lines
-    const subtotal = lines.reduce((sum, line) => sum + (line.line_amount || 0), 0);
-    const taxAmount = lines.reduce((sum, line) => sum + (line.tax_amount || 0), 0);
-    const totalAmount = subtotal + taxAmount;
+    // Validate required fields
+    if (!lines || !Array.isArray(lines) || lines.length === 0) {
+      await connection.rollback();
+      await connection.end();
+      return res.status(400).json({ error: 'At least one line item is required' });
+    }
+    
+    // Calculate totals from lines with proper decimal handling
+    const subtotal = Math.round((lines.reduce((sum, line) => sum + (parseFloat(line.line_amount) || 0), 0)) * 100) / 100;
+    const taxAmount = Math.round((lines.reduce((sum, line) => sum + (parseFloat(line.tax_amount) || 0), 0)) * 100) / 100;
+    const gstAmount = Math.round((lines.reduce((sum, line) => sum + (parseFloat(line.gst_amount) || 0), 0)) * 100) / 100;
+    const totalAmount = Math.round((subtotal + taxAmount + gstAmount) * 100) / 100;
+    
+    console.log('Calculated amounts:', { subtotal, taxAmount, gstAmount, totalAmount });
+    console.log('Amount types:', { 
+      subtotalType: typeof subtotal, 
+      taxAmountType: typeof taxAmount, 
+      gstAmountType: typeof gstAmount, 
+      totalAmountType: typeof totalAmount 
+    });
+    console.log('Raw line data:', lines.map(line => ({
+      line_amount: line.line_amount,
+      tax_amount: line.tax_amount,
+      gst_amount: line.gst_amount,
+      line_amount_type: typeof line.line_amount,
+      tax_amount_type: typeof line.tax_amount,
+      gst_amount_type: typeof line.gst_amount
+    })));
+    
+    // Validate that amounts don't exceed DECIMAL(15,2) limit (999,999,999,999,999.99)
+    const maxAmount = 999999999999999.99;
+    if (Math.abs(subtotal) > maxAmount || Math.abs(taxAmount) > maxAmount || 
+        Math.abs(gstAmount) > maxAmount || Math.abs(totalAmount) > maxAmount) {
+      await connection.rollback();
+      await connection.end();
+      return res.status(400).json({ error: 'Amount values exceed maximum allowed limit' });
+    }
+    
+    // Convert undefined values to null for MySQL, but preserve existing values for required fields
+    const params = [
+      po_type || oldValues.po_type,
+      supplier_id || oldValues.supplier_id,
+      supplier_site_id || oldValues.supplier_site_id,
+      buyer_id || oldValues.buyer_id,
+      requisition_id || null,
+      agreement_id || null,
+      po_date || oldValues.po_date, // Use existing po_date if not provided
+      need_by_date || oldValues.need_by_date, // Use existing need_by_date if not provided
+      currency_code || oldValues.currency_code,
+      exchange_rate || oldValues.exchange_rate,
+      subtotal || oldValues.subtotal,
+      taxAmount || oldValues.tax_amount,
+      totalAmount || oldValues.total_amount,
+      payment_terms_id || oldValues.payment_terms_id,
+      description || null,
+      notes || null,
+      status || oldValues.status,
+      approval_status || oldValues.approval_status,
+      req.params.id
+    ];
+    
+    console.log('SQL UPDATE parameters:', params);
+    console.log('Parameter types:', params.map((param, index) => ({ index, value: param, type: typeof param })));
+    
+    // Test the total_amount value specifically
+    console.log('Testing total_amount value:', {
+      value: totalAmount,
+      type: typeof totalAmount,
+      isFinite: Number.isFinite(totalAmount),
+      isNaN: Number.isNaN(totalAmount),
+      stringValue: String(totalAmount),
+      length: String(totalAmount).length
+    });
     
     await connection.execute(`
       UPDATE po_headers SET
@@ -1340,11 +1774,9 @@ router.put('/purchase-orders/:id', requireAdmin, async (req, res) => {
         requisition_id = ?, agreement_id = ?, po_date = ?, need_by_date = ?,
         currency_code = ?, exchange_rate = ?, subtotal = ?, tax_amount = ?,
         total_amount = ?, payment_terms_id = ?, description = ?, notes = ?,
-        status = ?, updated_at = NOW()
+        status = ?, approval_status = ?, updated_at = NOW()
       WHERE header_id = ?
-    `, [po_type, supplier_id, supplier_site_id, buyer_id, requisition_id, agreement_id,
-        po_date, need_by_date, currency_code, exchange_rate, subtotal, taxAmount,
-        totalAmount, payment_terms_id, description, notes, status, req.params.id]);
+    `, params);
 
     // Delete existing lines and insert new ones
     await connection.execute('DELETE FROM po_lines WHERE header_id = ?', [req.params.id]);
@@ -1352,27 +1784,75 @@ router.put('/purchase-orders/:id', requireAdmin, async (req, res) => {
     // Insert updated lines
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      console.log(`Processing line ${i + 1}:`, line);
       const lineId = await getNextSequenceValue(connection, 'PO_LINE_ID_SEQ');
+      console.log(`Generated line ID: ${lineId}`);
+      
+      // Convert undefined values to null for MySQL and ensure proper number formatting
+      const lineParams = [
+        lineId,
+        req.params.id,
+        i + 1,
+        line.item_code || null,
+        line.item_name || null,
+        line.description || null,
+        line.category || null,
+        line.uom || 'EA',
+        Math.round((parseFloat(line.quantity) || 0) * 100) / 100,
+        Math.round((parseFloat(line.unit_price) || 0) * 100) / 100,
+        Math.round((parseFloat(line.line_amount) || 0) * 100) / 100,
+        Math.round((parseFloat(line.tax_rate) || 0) * 100) / 100,
+        Math.round((parseFloat(line.tax_amount) || 0) * 100) / 100,
+        Math.round((parseFloat(line.gst_rate) || 0) * 100) / 100,
+        Math.round((parseFloat(line.gst_amount) || 0) * 100) / 100,
+        line.need_by_date || null,
+        line.promised_date || null,
+        line.notes || null
+      ];
       
       await connection.execute(`
         INSERT INTO po_lines (
           line_id, header_id, line_number, item_code, item_name, description,
           category, uom, quantity, unit_price, line_amount, tax_rate, tax_amount,
-          need_by_date, promised_date, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [lineId, req.params.id, i + 1, line.item_code, line.item_name, line.description,
-          line.category, line.uom, line.quantity, line.unit_price, line.line_amount,
-          line.tax_rate, line.tax_amount, line.need_by_date, line.promised_date, line.notes]);
+          gst_rate, gst_amount, need_by_date, promised_date, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, lineParams);
     }
     
     // Log audit trail
     await logAuditTrail(connection, req.user.id, 'UPDATE', 'PURCHASE_ORDER', req.params.id, oldValues, req.body);
     
-    await connection.end();
+    // Commit transaction
+    await connection.commit();
+    
     res.json({ message: 'Purchase order updated successfully' });
   } catch (error) {
     console.error('Error updating purchase order:', error);
-    res.status(500).json({ error: 'Failed to update purchase order' });
+    console.error('Error details:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    // Rollback transaction on error
+    if (connection && connection.rollback) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error('Error rolling back transaction:', rollbackError);
+      }
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to update purchase order',
+      details: error.message 
+    });
+  } finally {
+    // Ensure connection is closed even if there's an error
+    if (connection && connection.end) {
+      try {
+        await connection.end();
+      } catch (closeError) {
+        console.error('Error closing connection:', closeError);
+      }
+    }
   }
 });
 
@@ -1515,9 +1995,10 @@ router.get('/receipts/:id', async (req, res) => {
 });
 
 // Create goods receipt
-router.post('/receipts', requireAdmin, async (req, res) => {
+router.post('/receipts', authenticateToken, async (req, res) => {
+  let connection;
   try {
-    const connection = await mysql.createConnection(dbConfig);
+    connection = await mysql.createConnection(dbConfig);
     
     // Get next receipt ID and generate receipt number
     const receiptId = await getNextSequenceValue(connection, 'PO_RECEIPT_ID_SEQ');
@@ -1530,18 +2011,56 @@ router.post('/receipts', requireAdmin, async (req, res) => {
     // Calculate total amount from lines
     const totalAmount = lines.reduce((sum, line) => sum + (line.line_amount || 0), 0);
     
+    // Convert undefined values to null for MySQL
+    const receiptParams = [
+      receiptId,
+      receiptNumber,
+      header_id || null,
+      receipt_date || null,
+      receipt_type || 'STANDARD',
+      currency_code || 'USD',
+      exchange_rate || 1.0,
+      totalAmount || 0,
+      notes || null,
+      req.user?.id || 1 // Fallback to user ID 1 if req.user is undefined
+    ];
+    
+    
     await connection.execute(`
       INSERT INTO po_receipts (
         receipt_id, receipt_number, header_id, receipt_date, receipt_type,
         currency_code, exchange_rate, total_amount, notes, created_by
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [receiptId, receiptNumber, header_id, receipt_date, receipt_type,
-        currency_code, exchange_rate, totalAmount, notes, req.user.id]);
+    `, receiptParams);
     
     // Insert lines
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const receiptLineId = await getNextSequenceValue(connection, 'PO_RECEIPT_LINE_ID_SEQ');
+      
+      // Convert undefined values to null for MySQL
+      const lineParams = [
+        receiptLineId,
+        receiptId,
+        line.line_id || null,
+        i + 1,
+        line.item_code || null,
+        line.item_name || null,
+        line.description || null,
+        line.uom || 'EA',
+        line.quantity_ordered || 0,
+        line.quantity_received || 0,
+        line.quantity_accepted || 0,
+        line.quantity_rejected || 0,
+        line.unit_price || 0,
+        line.line_amount || 0,
+        line.lot_number || null,
+        line.serial_number || null,
+        line.expiration_date || null,
+        line.rejection_reason || null,
+        line.notes || null
+      ];
+      
       
       await connection.execute(`
         INSERT INTO po_receipt_lines (
@@ -1550,10 +2069,7 @@ router.post('/receipts', requireAdmin, async (req, res) => {
           quantity_rejected, unit_price, line_amount, lot_number, serial_number,
           expiration_date, rejection_reason, notes
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [receiptLineId, receiptId, line.line_id, i + 1, line.item_code, line.item_name,
-          line.description, line.uom, line.quantity_ordered, line.quantity_received,
-          line.quantity_accepted, line.quantity_rejected, line.unit_price, line.line_amount,
-          line.lot_number, line.serial_number, line.expiration_date, line.rejection_reason, line.notes]);
+      `, lineParams);
       
       // Update PO line received quantities
       await connection.execute(`
@@ -1583,12 +2099,24 @@ router.post('/receipts', requireAdmin, async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating goods receipt:', error);
-    res.status(500).json({ error: 'Failed to create goods receipt' });
+    console.error('Error details:', error.message);
+    console.error('Error stack:', error.stack);
+    if (connection) {
+      try {
+        await connection.end();
+      } catch (closeError) {
+        console.error('Error closing connection:', closeError);
+      }
+    }
+    res.status(500).json({ 
+      error: 'Failed to create goods receipt',
+      details: error.message 
+    });
   }
 });
 
 // Update goods receipt
-router.put('/receipts/:id', requireAdmin, async (req, res) => {
+router.put('/receipts/:id', authenticateToken, async (req, res) => {
   try {
     const connection = await mysql.createConnection(dbConfig);
     
@@ -1653,7 +2181,7 @@ router.put('/receipts/:id', requireAdmin, async (req, res) => {
 });
 
 // Delete goods receipt (soft delete)
-router.delete('/receipts/:id', requireAdmin, async (req, res) => {
+router.delete('/receipts/:id', authenticateToken, async (req, res) => {
   try {
     const connection = await mysql.createConnection(dbConfig);
     
@@ -1709,23 +2237,8 @@ router.get('/suppliers', async (req, res) => {
   }
 });
 
-// Get supplier sites
-router.get('/suppliers/:supplierId/sites', async (req, res) => {
-  try {
-    const connection = await mysql.createConnection(dbConfig);
-    const [rows] = await connection.execute(`
-      SELECT site_id, site_name, site_type 
-      FROM ap_supplier_sites 
-      WHERE supplier_id = ? AND status = 'ACTIVE' 
-      ORDER BY site_name
-    `, [req.params.supplierId]);
-    await connection.end();
-    res.json(rows);
-  } catch (error) {
-    console.error('Error fetching supplier sites:', error);
-    res.status(500).json({ error: 'Failed to fetch supplier sites' });
-  }
-});
+// Get supplier sites - REMOVED: This route conflicts with customer-supplier routes
+// Use /api/customer-supplier/suppliers/:supplierId/sites instead
 
 // Get users for dropdowns
 router.get('/users', async (req, res) => {
@@ -1804,7 +2317,7 @@ router.get('/purchase-orders/:headerId/lines', async (req, res) => {
   try {
     const connection = await mysql.createConnection(dbConfig);
     const [rows] = await connection.execute(`
-      SELECT line_id, line_number, item_name, quantity, quantity_remaining, unit_price 
+      SELECT line_id, line_number, item_code, item_name, description, uom, quantity, quantity_remaining, unit_price 
       FROM po_lines 
       WHERE header_id = ? AND quantity_remaining > 0 
       ORDER BY line_number
@@ -1816,6 +2329,7 @@ router.get('/purchase-orders/:headerId/lines', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch PO lines' });
   }
 });
+
 
 // Get procurement categories
 router.get('/categories', async (req, res) => {
@@ -1852,5 +2366,111 @@ router.get('/items', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch items' });
   }
 });
+
+// Pakistan GST PO Number Generation - Smart Logic
+router.get('/generate-po-number', async (req, res) => {
+  try {
+    const { year } = req.query;
+    const currentYear = year || new Date().getFullYear();
+    
+    const connection = await mysql.createConnection(dbConfig);
+    
+    // Start transaction for atomicity
+    await connection.beginTransaction();
+    
+    try {
+      // Set prefix for Pakistan GST System
+      const prefix = `PO-PK-${currentYear}`;
+      
+      // Check which PO numbers are actually used in purchase orders
+      const [usedPONumbers] = await connection.execute(
+        'SELECT po_number FROM po_headers WHERE po_number LIKE ? ORDER BY po_number',
+        [`${prefix}-%`]
+      );
+      
+      // Find the next available number
+      let nextNumber = 1;
+      const usedNumbers = usedPONumbers.map(row => {
+        const match = row.po_number.match(new RegExp(`${prefix}-(\\d+)`));
+        return match ? parseInt(match[1]) : 0;
+      }).filter(num => num > 0).sort((a, b) => a - b);
+      
+      // Get all numbers from tracking table
+      const [trackingNumbers] = await connection.execute(
+        'SELECT po_number FROM po_numbers WHERE po_number LIKE ? ORDER BY po_number',
+        [`${prefix}-%`]
+      );
+      
+      const trackingUsedNumbers = trackingNumbers.map(row => {
+        const match = row.po_number.match(new RegExp(`${prefix}-(\\d+)`));
+        return match ? parseInt(match[1]) : 0;
+      }).filter(num => num > 0).sort((a, b) => a - b);
+      
+      // Find the next number that doesn't exist in either table
+      const allUsedNumbers = [...new Set([...usedNumbers, ...trackingUsedNumbers])];
+      const maxNumber = Math.max(...allUsedNumbers, 0);
+      
+      for (let i = 1; i <= maxNumber + 1; i++) {
+        if (!allUsedNumbers.includes(i)) {
+          nextNumber = i;
+          break;
+        }
+      }
+      
+      // Generate the PO number
+      const formattedNumber = nextNumber.toString().padStart(4, '0');
+      const generatedPO = `${prefix}-${formattedNumber}`;
+      
+      // Check if this PO number already exists in po_headers table (actual purchase orders)
+      const [existingPOs] = await connection.execute(
+        'SELECT COUNT(*) as count FROM po_headers WHERE po_number = ?',
+        [generatedPO]
+      );
+      
+      // Also check tracking table to avoid duplicates
+      const [existingTracking] = await connection.execute(
+        'SELECT COUNT(*) as count FROM po_numbers WHERE po_number = ?',
+        [generatedPO]
+      );
+      
+      if (existingPOs[0].count === 0 && existingTracking[0].count === 0) {
+        // Insert generated PO number into tracking table for audit
+        await connection.execute(
+          'INSERT INTO po_numbers (po_number, generated_date, is_manual) VALUES (?, CURRENT_DATE, FALSE)',
+          [generatedPO]
+        );
+        
+        await connection.commit();
+        await connection.end();
+        
+        res.json({ 
+          po_number: generatedPO,
+          success: true,
+          message: 'PO number generated successfully',
+          next_available: nextNumber
+        });
+      } else {
+        await connection.rollback();
+        await connection.end();
+        res.status(409).json({ 
+          error: 'Generated PO number already exists. Please retry.',
+          success: false
+        });
+      }
+    } catch (error) {
+      await connection.rollback();
+      await connection.end();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error generating PO number:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate PO number',
+      success: false
+    });
+  }
+});
+
+
 
 export default router;

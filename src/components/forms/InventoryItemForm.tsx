@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Package, Save } from "lucide-react";
 import apiService from '@/services/api';
 import type { InventoryItem } from "@/components/dashboard/InventoryDashboard";
@@ -21,9 +22,15 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
     item_name: "",
     description: "",
     category: "",
-    quantity: 0,
-    unit_price: 0,
-    location: ""
+    location: "",
+    brand: "",
+    barcode: "",
+    item_purchase_rate: 0,
+    item_sell_price: 0,
+    tax_status: "",
+    uom_type: "",
+    box_quantity: 0,
+    uom_type_detail: 0
   });
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -44,6 +51,12 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
     "Warehouse C",
     "Main Store",
     "Storage Room"
+  ];
+
+  const taxStatuses = [
+    "Taxable",
+    "Non-Taxable",
+    "Exempt"
   ];
 
   const handleSave = async () => {
@@ -70,16 +83,11 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
   };
 
   return (
-    <Card className="max-w-2xl mx-auto">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Package className="w-5 h-5" />
-          Add New Inventory Item
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <div className="space-y-4">
         {error && <div className="text-red-600">{error}</div>}
         {success && <div className="text-green-600">{success}</div>}
+        
+        {/* Basic Information */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <Label htmlFor="name">Item Name</Label>
@@ -91,14 +99,46 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
             />
           </div>
           <div>
-            <Label htmlFor="sku">SKU</Label>
+            <Label htmlFor="brand">Brand (Company Name)</Label>
             <Input
-              id="sku"
+              id="brand"
+              placeholder="Enter brand/company name"
+              value={itemData.brand}
+              onChange={(e) => setItemData({...itemData, brand: e.target.value})}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="itemCode">SKU</Label>
+            <Input
+              id="itemCode"
               placeholder="Enter SKU"
               value={itemData.item_code}
               onChange={(e) => setItemData({...itemData, item_code: e.target.value})}
             />
           </div>
+          <div>
+            <Label htmlFor="barcode">Barcode (Company Product Code)</Label>
+            <Input
+              id="barcode"
+              placeholder="Enter barcode"
+              value={itemData.barcode}
+              onChange={(e) => setItemData({...itemData, barcode: e.target.value})}
+            />
+          </div>
+        </div>
+
+        <div>
+          <Label htmlFor="description">Description</Label>
+          <Textarea
+            id="description"
+            placeholder="Enter item description"
+            value={itemData.description}
+            onChange={(e) => setItemData({...itemData, description: e.target.value})}
+            rows={3}
+          />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -140,40 +180,107 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
           </div>
         </div>
 
+        {/* Pricing Information */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <Label htmlFor="quantity">Quantity</Label>
+            <Label htmlFor="purchaseRate">Item Purchase Rate ($)</Label>
             <Input
-              id="quantity"
-              type="number"
-              min="0"
-              value={itemData.quantity}
-              onChange={(e) => setItemData({...itemData, quantity: parseInt(e.target.value) || 0})}
-            />
-          </div>
-          <div>
-            <Label htmlFor="unitCost">Unit Cost ($)</Label>
-            <Input
-              id="unitCost"
+              id="purchaseRate"
               type="number"
               min="0"
               step="0.01"
-              value={itemData.unit_price}
-              onChange={(e) => setItemData({...itemData, unit_price: parseFloat(e.target.value) || 0})}
+              value={itemData.item_purchase_rate}
+              onChange={(e) => setItemData({...itemData, item_purchase_rate: parseFloat(e.target.value) || 0})}
             />
+          </div>
+          <div>
+            <Label htmlFor="sellPrice">Item Sell Price ($)</Label>
+            <Input
+              id="sellPrice"
+              type="number"
+              min="0"
+              step="0.01"
+              value={itemData.item_sell_price}
+              onChange={(e) => setItemData({...itemData, item_sell_price: parseFloat(e.target.value) || 0})}
+            />
+          </div>
+          <div>
+            <Label>Tax Status</Label>
+            <Select
+              value={itemData.tax_status}
+              onValueChange={(value) => setItemData({...itemData, tax_status: value})}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select tax status" />
+              </SelectTrigger>
+              <SelectContent>
+                {taxStatuses.map(status => (
+                  <SelectItem key={status} value={status}>
+                    {status}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
-        <div>
-          <Label htmlFor="description">Description</Label>
-          <Textarea
-            id="description"
-            placeholder="Enter item description"
-            value={itemData.description}
-            onChange={(e) => setItemData({...itemData, description: e.target.value})}
-            rows={3}
-          />
+        {/* UOM Section */}
+        <div className="space-y-4">
+          <Label>UOM (Unit of Measurement)</Label>
+          
+          {/* Boxes Input */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="boxes">Number of Boxes</Label>
+              <Input
+                id="boxes"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="Enter number of boxes"
+                value={itemData.box_quantity}
+                onChange={(e) => setItemData({...itemData, box_quantity: parseInt(e.target.value) || 0})}
+              />
+            </div>
+            <div>
+              <Label>UOM Type</Label>
+              <Select
+                value={itemData.uom_type}
+                onValueChange={(value) => setItemData({...itemData, uom_type: value})}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select UOM type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PCS">PCS</SelectItem>
+                  <SelectItem value="Bottles">Bottles</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          {/* Conditional Input for UOM Type Detail */}
+          {itemData.uom_type && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="uomTypeDetail">
+                  Value ({itemData.uom_type === "PCS" ? "Kilograms" : "Liters"})
+                </Label>
+                <Input
+                  id="uomTypeDetail"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder={`Enter ${itemData.uom_type === "PCS" ? "kilograms" : "liters"}`}
+                  value={itemData.uom_type_detail || 0}
+                  onChange={(e) => setItemData({...itemData, uom_type_detail: parseFloat(e.target.value) || 0})}
+                />
+              </div>
+            </div>
+          )}
         </div>
+
+
 
         <div className="flex justify-between pt-4">
           <Button variant="outline" onClick={onClose} disabled={saving}>
@@ -184,7 +291,6 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
             {saving ? "Saving..." : "Save Item"}
           </Button>
         </div>
-      </CardContent>
-    </Card>
-  );
+      </div>
+    );
 };

@@ -396,57 +396,53 @@ class ApiService {
 
   // Party Management
   async getParties() {
-    return this.request('/customer-supplier/parties');
+    return this.request('/parties');
   }
 
   async getParty(id) {
-    return this.request(`/customer-supplier/parties/${id}`);
+    return this.request(`/parties/${id}`);
   }
 
   async createParty(partyData) {
-    return this.request('/customer-supplier/parties', {
+    return this.request('/parties', {
       method: 'POST',
       body: JSON.stringify(partyData)
     });
   }
 
   async updateParty(id, partyData) {
-    return this.request(`/customer-supplier/parties/${id}`, {
+    return this.request(`/parties/${id}`, {
       method: 'PUT',
       body: JSON.stringify(partyData)
     });
   }
 
   async deleteParty(id) {
-    return this.request(`/customer-supplier/parties/${id}`, {
+    return this.request(`/parties/${id}`, {
       method: 'DELETE'
     });
   }
 
   // Party Sites Management
   async getPartySites(partyId) {
-    return this.request(`/customer-supplier/parties/${partyId}/sites`);
+    return this.request(`/parties/${partyId}/sites`);
   }
 
   async createPartySite(partyId, siteData) {
-    return this.request(`/customer-supplier/parties/${partyId}/sites`, {
+    return this.request(`/parties/${partyId}/sites`, {
       method: 'POST',
       body: JSON.stringify(siteData)
     });
   }
 
   async updatePartySite(siteId, siteData) {
-    return this.request(`/customer-supplier/sites/${siteId}`, {
+    return this.request(`/parties/sites/${siteId}`, {
       method: 'PUT',
       body: JSON.stringify(siteData)
     });
   }
 
-  async deletePartySite(siteId) {
-    return this.request(`/customer-supplier/sites/${siteId}`, {
-      method: 'DELETE'
-    });
-  }
+
 
   // Customer Profiles Management
   async getCustomers() {
@@ -473,6 +469,31 @@ class ApiService {
 
   async deleteCustomer(id) {
     return this.request(`/customer-supplier/customers/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Customer Sites Management
+  async getCustomerSites(customerId) {
+    return this.request(`/customer-supplier/customers/${customerId}/sites`);
+  }
+
+  async createCustomerSite(customerId, siteData) {
+    return this.request(`/customer-supplier/customers/${customerId}/sites`, {
+      method: 'POST',
+      body: JSON.stringify(siteData)
+    });
+  }
+
+  async updateCustomerSite(siteId, siteData) {
+    return this.request(`/customer-supplier/customers/sites/${siteId}`, {
+      method: 'PUT',
+      body: JSON.stringify(siteData)
+    });
+  }
+
+  async deleteCustomerSite(siteId) {
+    return this.request(`/customer-supplier/customers/sites/${siteId}`, {
       method: 'DELETE'
     });
   }
@@ -506,27 +527,52 @@ class ApiService {
     });
   }
 
+  // Supplier Sites Management
+  async getSupplierSites(supplierId) {
+    return this.request(`/customer-supplier/suppliers/${supplierId}/sites`);
+  }
+
+  async createSupplierSite(supplierId, siteData) {
+    return this.request(`/customer-supplier/suppliers/${supplierId}/sites`, {
+      method: 'POST',
+      body: JSON.stringify(siteData)
+    });
+  }
+
+  async updateSupplierSite(siteId, siteData) {
+    return this.request(`/customer-supplier/suppliers/sites/${siteId}`, {
+      method: 'PUT',
+      body: JSON.stringify(siteData)
+    });
+  }
+
+  async deleteSupplierSite(siteId) {
+    return this.request(`/customer-supplier/suppliers/sites/${siteId}`, {
+      method: 'DELETE'
+    });
+  }
+
   // Contact Points Management
   async getPartyContacts(partyId) {
-    return this.request(`/customer-supplier/parties/${partyId}/contacts`);
+    return this.request(`/parties/${partyId}/contacts`);
   }
 
   async createContactPoint(partyId, contactData) {
-    return this.request(`/customer-supplier/parties/${partyId}/contacts`, {
+    return this.request(`/parties/${partyId}/contacts`, {
       method: 'POST',
       body: JSON.stringify(contactData)
     });
   }
 
   async updateContactPoint(contactPointId, contactData) {
-    return this.request(`/customer-supplier/contacts/${contactPointId}`, {
+    return this.request(`/parties/contacts/${contactPointId}`, {
       method: 'PUT',
       body: JSON.stringify(contactData)
     });
   }
 
   async deleteContactPoint(contactPointId) {
-    return this.request(`/customer-supplier/contacts/${contactPointId}`, {
+    return this.request(`/parties/contacts/${contactPointId}`, {
       method: 'DELETE'
     });
   }
@@ -668,6 +714,11 @@ class ApiService {
     return this.request('/procurement/purchase-orders-dropdown');
   }
 
+  // Pakistan GST PO Number Generation
+  async generatePONumber(year) {
+    return this.request(`/procurement/generate-po-number?year=${year}`);
+  }
+
   // Procurement Suppliers and Users
   async getProcurementSuppliers() {
     // Use direct URL to bypass API prefix and authentication
@@ -695,7 +746,11 @@ class ApiService {
   }
 
   async getProcurementSupplierSites(supplierId) {
-    return this.request(`/procurement/suppliers/${supplierId}/sites`);
+    return this.request(`/customer-supplier/suppliers/${supplierId}/sites`);
+  }
+
+  async getSupplierSiteById(siteId) {
+    return this.request(`/customer-supplier/sites/${siteId}`);
   }
 
   async getProcurementUsers() {
@@ -709,6 +764,36 @@ class ApiService {
 
   async getProcurementItems() {
     return this.request('/procurement/items');
+  }
+
+  // GRN (Goods Received Notes) methods
+  async getGRNs(params = {}) {
+    const queryParams = new URLSearchParams(params).toString();
+    return this.request(`/procurement/receipts${queryParams ? `?${queryParams}` : ''}`);
+  }
+
+  async getGRN(id) {
+    return this.request(`/procurement/receipts/${id}`);
+  }
+
+  async createGRN(data) {
+    return this.request('/procurement/receipts', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateGRN(id, data) {
+    return this.request(`/procurement/receipts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deleteGRN(id) {
+    return this.request(`/procurement/receipts/${id}`, {
+      method: 'DELETE'
+    });
   }
 }
 

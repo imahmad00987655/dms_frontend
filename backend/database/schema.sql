@@ -158,13 +158,21 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     item_name VARCHAR(100) NOT NULL,
     description TEXT,
     category VARCHAR(50),
-    quantity INT DEFAULT 0,
-    unit_price DECIMAL(15,2) DEFAULT 0.00,
     location VARCHAR(100),
+    brand VARCHAR(100),
+    barcode VARCHAR(100),
+    item_purchase_rate DECIMAL(15,2) DEFAULT 0.00,
+    item_sell_price DECIMAL(15,2) DEFAULT 0.00,
+    tax_status VARCHAR(50),
+    box_quantity DECIMAL(15,2) DEFAULT 0.00,
+    uom_type VARCHAR(50),
+    uom_type_detail DECIMAL(15,2) DEFAULT 0.00,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_item_code (item_code),
-    INDEX idx_category (category)
+    INDEX idx_category (category),
+    INDEX idx_brand (brand),
+    INDEX idx_barcode (barcode)
 );
 
 -- Bin Card table
@@ -260,21 +268,27 @@ ON DUPLICATE KEY UPDATE current_value = current_value;
 CREATE TABLE IF NOT EXISTS ar_customers (
     customer_id BIGINT PRIMARY KEY,
     customer_number VARCHAR(30) UNIQUE NOT NULL,
+    party_id BIGINT,
     customer_name VARCHAR(255) NOT NULL,
-    customer_type ENUM('INDIVIDUAL', 'CORPORATE', 'GOVERNMENT') DEFAULT 'CORPORATE',
+    customer_type ENUM('INDIVIDUAL', 'CORPORATE', 'GOVERNMENT', 'NON_PROFIT') DEFAULT 'CORPORATE',
+    customer_class VARCHAR(50),
+    customer_category VARCHAR(50),
     tax_id VARCHAR(50),
     credit_limit DECIMAL(15,2) DEFAULT 0.00,
     credit_hold_flag BOOLEAN DEFAULT FALSE,
     payment_terms_id INT DEFAULT 30,
-    currency_code VARCHAR(10) DEFAULT 'USD',
     status ENUM('ACTIVE', 'INACTIVE', 'SUSPENDED') DEFAULT 'ACTIVE',
     created_by INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    FOREIGN KEY (party_id) REFERENCES parties(party_id) ON DELETE SET NULL,
     INDEX idx_customer_number (customer_number),
+    INDEX idx_party_id (party_id),
     INDEX idx_customer_name (customer_name),
     INDEX idx_customer_type (customer_type),
+    INDEX idx_customer_class (customer_class),
+    INDEX idx_customer_category (customer_category),
     INDEX idx_status (status),
     INDEX idx_created_by (created_by)
 );
@@ -421,21 +435,36 @@ CREATE TABLE IF NOT EXISTS ar_receipt_applications (
 CREATE TABLE IF NOT EXISTS ap_suppliers (
     supplier_id BIGINT PRIMARY KEY,
     supplier_number VARCHAR(30) UNIQUE NOT NULL,
+    party_id BIGINT,
     supplier_name VARCHAR(255) NOT NULL,
     supplier_type ENUM('VENDOR', 'CONTRACTOR', 'SERVICE_PROVIDER', 'GOVERNMENT') DEFAULT 'VENDOR',
+    supplier_class VARCHAR(100),
+    supplier_category VARCHAR(100),
     tax_id VARCHAR(50),
     payment_terms_id INT DEFAULT 30,
+    payment_method VARCHAR(50),
     currency_code VARCHAR(10) DEFAULT 'USD',
     credit_limit DECIMAL(15,2) DEFAULT 0.00,
+    bank_account VARCHAR(100),
     hold_flag BOOLEAN DEFAULT FALSE,
     status ENUM('ACTIVE', 'INACTIVE', 'SUSPENDED') DEFAULT 'ACTIVE',
     created_by INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    FOREIGN KEY (party_id) REFERENCES parties(party_id) ON DELETE SET NULL,
     INDEX idx_supplier_number (supplier_number),
+    INDEX idx_party_id (party_id),
     INDEX idx_supplier_name (supplier_name),
     INDEX idx_supplier_type (supplier_type),
+    INDEX idx_supplier_class (supplier_class),
+    INDEX idx_supplier_category (supplier_category),
+    INDEX idx_tax_id (tax_id),
+    INDEX idx_payment_terms_id (payment_terms_id),
+    INDEX idx_payment_method (payment_method),
+    INDEX idx_currency_code (currency_code),
+    INDEX idx_credit_limit (credit_limit),
+    INDEX idx_bank_account (bank_account),
     INDEX idx_status (status),
     INDEX idx_created_by (created_by)
 );
@@ -445,7 +474,7 @@ CREATE TABLE IF NOT EXISTS ap_supplier_sites (
     site_id BIGINT PRIMARY KEY,
     supplier_id BIGINT NOT NULL,
     site_name VARCHAR(255) NOT NULL,
-    site_type ENUM('PAYMENT', 'PURCHASING', 'BOTH') DEFAULT 'PAYMENT',
+    site_type ENUM('BILL_TO', 'SHIP_TO', 'BOTH') DEFAULT 'BILL_TO',
     address_line1 VARCHAR(255),
     address_line2 VARCHAR(255),
     city VARCHAR(100),
@@ -455,13 +484,10 @@ CREATE TABLE IF NOT EXISTS ap_supplier_sites (
     phone VARCHAR(50),
     email VARCHAR(255),
     contact_person VARCHAR(255),
-    payment_method VARCHAR(50),
-    bank_account VARCHAR(100),
     is_primary BOOLEAN DEFAULT FALSE,
     status ENUM('ACTIVE', 'INACTIVE') DEFAULT 'ACTIVE',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (supplier_id) REFERENCES ap_suppliers(supplier_id) ON DELETE CASCADE,
     INDEX idx_supplier_id (supplier_id),
     INDEX idx_site_type (site_type),
     INDEX idx_is_primary (is_primary),
@@ -579,239 +605,83 @@ CREATE TABLE IF NOT EXISTS ap_payment_applications (
     INDEX idx_status (status),
     INDEX idx_created_by (created_by)
 );
-
 -- ============================================================================
--- CUSTOMER/SUPPLIER MANAGEMENT SYSTEM (Oracle Apps R12 Structure)
+-- PARTY MANAGEMENT SYSTEM (Simplified Structure)
 -- ============================================================================
 
--- Customer/Supplier Master table (HZ_PARTIES)
-CREATE TABLE IF NOT EXISTS hz_parties (
+-- Insert party management sequences
+INSERT INTO ar_sequences (sequence_name, current_value) VALUES
+('PARTY_ID_SEQ', 1),
+('PARTY_SITE_ID_SEQ', 1),
+('PARTY_CONTACT_POINT_ID_SEQ', 1)
+ON DUPLICATE KEY UPDATE current_value = current_value;
+
+-- Parties table (PARTIES) - Simplified structure matching the form
+CREATE TABLE IF NOT EXISTS parties (
     party_id BIGINT PRIMARY KEY,
     party_number VARCHAR(30) UNIQUE NOT NULL,
     party_name VARCHAR(255) NOT NULL,
     party_type ENUM('PERSON', 'ORGANIZATION', 'GROUP') DEFAULT 'ORGANIZATION',
     tax_id VARCHAR(50),
-    tax_registration_number VARCHAR(50),
-    duns_number VARCHAR(20),
-    sic_code VARCHAR(10),
-    naics_code VARCHAR(10),
     website VARCHAR(255),
     industry VARCHAR(100),
-    annual_revenue DECIMAL(20,2),
-    employee_count INT,
-    year_established INT,
-    legal_status VARCHAR(50),
     status ENUM('ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING') DEFAULT 'ACTIVE',
     created_by INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
     INDEX idx_party_number (party_number),
-    INDEX idx_party_name (party_number),
+    INDEX idx_party_name (party_name),
     INDEX idx_party_type (party_type),
     INDEX idx_tax_id (tax_id),
     INDEX idx_status (status),
     INDEX idx_created_by (created_by)
 );
 
--- Party Contact Information (HZ_PARTY_SITES)
-CREATE TABLE IF NOT EXISTS hz_party_sites (
+-- Party Contact Points table (PARTY_CONTACT_POINTS) - For party-level contact information
+CREATE TABLE IF NOT EXISTS party_contact_points (
+    contact_point_id BIGINT PRIMARY KEY,
+    party_id BIGINT NOT NULL,
+    contact_point_type ENUM('PHONE', 'EMAIL', 'FAX', 'WEB', 'MOBILE') NOT NULL,
+    contact_point_value VARCHAR(255) NOT NULL,
+    contact_point_purpose VARCHAR(100),
+    is_primary BOOLEAN DEFAULT FALSE,
+    status ENUM('ACTIVE', 'INACTIVE') DEFAULT 'ACTIVE',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (party_id) REFERENCES parties(party_id) ON DELETE CASCADE,
+    INDEX idx_party_id (party_id),
+    INDEX idx_contact_point_type (contact_point_type),
+    INDEX idx_is_primary (is_primary),
+    INDEX idx_status (status)
+);
+
+-- Party Sites table (PARTY_SITES) - For address and contact information
+CREATE TABLE IF NOT EXISTS party_sites (
     site_id BIGINT PRIMARY KEY,
     party_id BIGINT NOT NULL,
     site_name VARCHAR(255) NOT NULL,
     site_type ENUM('BILL_TO', 'SHIP_TO', 'PAYMENT', 'PURCHASING', 'BOTH') DEFAULT 'BOTH',
     address_line1 VARCHAR(255),
     address_line2 VARCHAR(255),
-    address_line3 VARCHAR(255),
     city VARCHAR(100),
     state VARCHAR(50),
     postal_code VARCHAR(20),
     country VARCHAR(100),
-    country_code VARCHAR(10),
     phone VARCHAR(50),
-    fax VARCHAR(50),
     email VARCHAR(255),
-    website VARCHAR(255),
     contact_person VARCHAR(255),
-    contact_title VARCHAR(100),
-    contact_phone VARCHAR(50),
-    contact_email VARCHAR(255),
     is_primary BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
     status ENUM('ACTIVE', 'INACTIVE') DEFAULT 'ACTIVE',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (party_id) REFERENCES hz_parties(party_id) ON DELETE CASCADE,
+    FOREIGN KEY (party_id) REFERENCES parties(party_id) ON DELETE CASCADE,
     INDEX idx_party_id (party_id),
     INDEX idx_site_type (site_type),
-    INDEX idx_city (city),
-    INDEX idx_state (state),
-    INDEX idx_country (country),
     INDEX idx_is_primary (is_primary),
     INDEX idx_status (status)
 );
 
--- Party Relationships (HZ_RELATIONSHIPS)
-CREATE TABLE IF NOT EXISTS hz_relationships (
-    relationship_id BIGINT PRIMARY KEY,
-    party_id BIGINT NOT NULL,
-    related_party_id BIGINT NOT NULL,
-    relationship_type ENUM('CUSTOMER', 'SUPPLIER', 'BOTH', 'PARTNER', 'AFFILIATE') NOT NULL,
-    relationship_code VARCHAR(50),
-    start_date DATE,
-    end_date DATE,
-    status ENUM('ACTIVE', 'INACTIVE', 'PENDING') DEFAULT 'ACTIVE',
-    notes TEXT,
-    created_by INT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (party_id) REFERENCES hz_parties(party_id) ON DELETE CASCADE,
-    FOREIGN KEY (related_party_id) REFERENCES hz_parties(party_id) ON DELETE CASCADE,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
-    INDEX idx_party_id (party_id),
-    INDEX idx_related_party_id (related_party_id),
-    INDEX idx_relationship_type (relationship_type),
-    INDEX idx_status (status),
-    INDEX idx_created_by (created_by)
-);
-
--- Customer Profile (HZ_CUSTOMER_PROFILES)
-CREATE TABLE IF NOT EXISTS hz_customer_profiles (
-    profile_id BIGINT PRIMARY KEY,
-    party_id BIGINT NOT NULL,
-    customer_number VARCHAR(30) UNIQUE NOT NULL,
-    customer_type ENUM('INDIVIDUAL', 'CORPORATE', 'GOVERNMENT', 'NON_PROFIT') DEFAULT 'CORPORATE',
-    customer_class VARCHAR(50),
-    customer_category VARCHAR(50),
-    credit_limit DECIMAL(15,2) DEFAULT 0.00,
-    credit_hold_flag BOOLEAN DEFAULT FALSE,
-    payment_terms_id INT DEFAULT 30,
-    currency_code VARCHAR(10) DEFAULT 'USD',
-    sales_rep_id INT,
-    territory_id VARCHAR(50),
-    price_list_id VARCHAR(50),
-    discount_percent DECIMAL(5,2) DEFAULT 0.00,
-    tax_exempt_flag BOOLEAN DEFAULT FALSE,
-    tax_exemption_number VARCHAR(50),
-    status ENUM('ACTIVE', 'INACTIVE', 'SUSPENDED') DEFAULT 'ACTIVE',
-    created_by INT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (party_id) REFERENCES hz_parties(party_id) ON DELETE CASCADE,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
-    INDEX idx_customer_number (customer_number),
-    INDEX idx_customer_type (customer_type),
-    INDEX idx_customer_class (customer_class),
-    INDEX idx_credit_limit (credit_limit),
-    INDEX idx_status (status),
-    INDEX idx_created_by (created_by)
-);
-
--- Supplier Profile (HZ_SUPPLIER_PROFILES)
-CREATE TABLE IF NOT EXISTS hz_supplier_profiles (
-    profile_id BIGINT PRIMARY KEY,
-    party_id BIGINT NOT NULL,
-    supplier_number VARCHAR(30) UNIQUE NOT NULL,
-    supplier_type ENUM('VENDOR', 'CONTRACTOR', 'SERVICE_PROVIDER', 'GOVERNMENT') DEFAULT 'VENDOR',
-    supplier_class VARCHAR(50),
-    supplier_category VARCHAR(50),
-    credit_limit DECIMAL(15,2) DEFAULT 0.00,
-    hold_flag BOOLEAN DEFAULT FALSE,
-    payment_terms_id INT DEFAULT 30,
-    currency_code VARCHAR(10) DEFAULT 'USD',
-    purchasing_rep_id INT,
-    payment_method VARCHAR(50),
-    bank_account VARCHAR(100),
-    tax_exempt_flag BOOLEAN DEFAULT FALSE,
-    tax_exemption_number VARCHAR(50),
-    minority_owned_flag BOOLEAN DEFAULT FALSE,
-    women_owned_flag BOOLEAN DEFAULT FALSE,
-    veteran_owned_flag BOOLEAN DEFAULT FALSE,
-    status ENUM('ACTIVE', 'INACTIVE', 'SUSPENDED') DEFAULT 'ACTIVE',
-    created_by INT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (party_id) REFERENCES hz_parties(party_id) ON DELETE CASCADE,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
-    INDEX idx_supplier_number (supplier_number),
-    INDEX idx_supplier_type (supplier_type),
-    INDEX idx_supplier_class (supplier_class),
-    INDEX idx_credit_limit (credit_limit),
-    INDEX idx_status (status),
-    INDEX idx_created_by (created_by)
-);
-
--- Party Contact Points (HZ_CONTACT_POINTS)
-CREATE TABLE IF NOT EXISTS hz_contact_points (
-    contact_point_id BIGINT PRIMARY KEY,
-    party_id BIGINT NOT NULL,
-    contact_point_type ENUM('PHONE', 'EMAIL', 'FAX', 'WEB', 'MOBILE') NOT NULL,
-    contact_point_value VARCHAR(255) NOT NULL,
-    contact_point_purpose VARCHAR(50),
-    is_primary BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-    status ENUM('ACTIVE', 'INACTIVE') DEFAULT 'ACTIVE',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (party_id) REFERENCES hz_parties(party_id) ON DELETE CASCADE,
-    INDEX idx_party_id (party_id),
-    INDEX idx_contact_point_type (contact_point_type),
-    INDEX idx_contact_point_purpose (contact_point_purpose),
-    INDEX idx_is_primary (is_primary),
-    INDEX idx_status (status)
-);
-
--- Party Classifications (HZ_PARTY_CLASSIFICATIONS)
-CREATE TABLE IF NOT EXISTS hz_party_classifications (
-    classification_id BIGINT PRIMARY KEY,
-    party_id BIGINT NOT NULL,
-    classification_type VARCHAR(50) NOT NULL,
-    classification_code VARCHAR(50) NOT NULL,
-    classification_value VARCHAR(255),
-    start_date DATE,
-    end_date DATE,
-    status ENUM('ACTIVE', 'INACTIVE') DEFAULT 'ACTIVE',
-    created_by INT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (party_id) REFERENCES hz_parties(party_id) ON DELETE CASCADE,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
-    INDEX idx_party_id (party_id),
-    INDEX idx_classification_type (classification_type),
-    INDEX idx_classification_code (classification_code),
-    INDEX idx_status (status),
-    INDEX idx_created_by (created_by)
-);
-
--- Party Notes (HZ_PARTY_NOTES)
-CREATE TABLE IF NOT EXISTS hz_party_notes (
-    note_id BIGINT PRIMARY KEY,
-    party_id BIGINT NOT NULL,
-    note_type VARCHAR(50),
-    note_text TEXT NOT NULL,
-    is_public BOOLEAN DEFAULT FALSE,
-    created_by INT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (party_id) REFERENCES hz_parties(party_id) ON DELETE CASCADE,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
-    INDEX idx_party_id (party_id),
-    INDEX idx_note_type (note_type),
-    INDEX idx_is_public (is_public),
-    INDEX idx_created_by (created_by)
-);
-
--- Insert default sequences for Customer/Supplier Management
-INSERT INTO ar_sequences (sequence_name, current_value) VALUES
-('HZ_PARTY_ID_SEQ', 1),
-('HZ_PARTY_SITE_ID_SEQ', 1),
-('HZ_RELATIONSHIP_ID_SEQ', 1),
-('HZ_CUSTOMER_PROFILE_ID_SEQ', 1),
-('HZ_SUPPLIER_PROFILE_ID_SEQ', 1),
-('HZ_CONTACT_POINT_ID_SEQ', 1),
-('HZ_CLASSIFICATION_ID_SEQ', 1),
-('HZ_NOTE_ID_SEQ', 1)
-ON DUPLICATE KEY UPDATE current_value = current_value;
 -- ============================================================================
 -- PROCUREMENT SYSTEM (Oracle E-Business Suite R12 Model)
 -- ============================================================================
@@ -834,6 +704,7 @@ CREATE TABLE IF NOT EXISTS po_agreements (
     agreement_number VARCHAR(50) UNIQUE NOT NULL,
     agreement_type ENUM('BLANKET', 'CONTRACT', 'MASTER') DEFAULT 'BLANKET',
     supplier_id BIGINT NOT NULL,
+    party_id BIGINT NOT NULL,
     supplier_site_id BIGINT NOT NULL,
     buyer_id INT NOT NULL,
     agreement_date DATE NOT NULL,
@@ -855,12 +726,14 @@ CREATE TABLE IF NOT EXISTS po_agreements (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (supplier_id) REFERENCES ap_suppliers(supplier_id) ON DELETE RESTRICT,
+    FOREIGN KEY (party_id) REFERENCES parties(party_id) ON DELETE RESTRICT,
     FOREIGN KEY (supplier_site_id) REFERENCES ap_supplier_sites(site_id) ON DELETE RESTRICT,
     FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE RESTRICT,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
     FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL,
     INDEX idx_agreement_number (agreement_number),
     INDEX idx_supplier_id (supplier_id),
+    INDEX idx_party_id (party_id),
     INDEX idx_supplier_site_id (supplier_site_id),
     INDEX idx_buyer_id (buyer_id),
     INDEX idx_agreement_date (agreement_date),
@@ -885,6 +758,11 @@ CREATE TABLE IF NOT EXISTS po_agreement_lines (
     quantity DECIMAL(10,2) NOT NULL DEFAULT 1.00,
     unit_price DECIMAL(15,2) NOT NULL DEFAULT 0.00,
     line_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    tax_rate DECIMAL(5,2) DEFAULT 0.00,
+    tax_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    gst_rate DECIMAL(5,2) DEFAULT 0.00,
+    gst_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    total_line_amount DECIMAL(15,2) GENERATED ALWAYS AS (line_amount + tax_amount + gst_amount) STORED,
     min_quantity DECIMAL(10,2) NULL,
     max_quantity DECIMAL(10,2) NULL,
     need_by_date DATE,
@@ -954,6 +832,11 @@ CREATE TABLE IF NOT EXISTS po_requisition_lines (
     quantity DECIMAL(10,2) NOT NULL DEFAULT 1.00,
     unit_price DECIMAL(15,2) NOT NULL DEFAULT 0.00,
     line_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    tax_rate DECIMAL(5,2) DEFAULT 0.00,
+    tax_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    gst_rate DECIMAL(5,2) DEFAULT 0.00,
+    gst_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    total_line_amount DECIMAL(15,2) GENERATED ALWAYS AS (line_amount + tax_amount + gst_amount) STORED,
     need_by_date DATE,
     suggested_supplier VARCHAR(255),
     suggested_supplier_id BIGINT NULL,
@@ -1037,7 +920,9 @@ CREATE TABLE IF NOT EXISTS po_lines (
     line_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
     tax_rate DECIMAL(5,2) DEFAULT 0.00,
     tax_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
-    total_line_amount DECIMAL(15,2) GENERATED ALWAYS AS (line_amount + tax_amount) STORED,
+    gst_rate DECIMAL(5,2) DEFAULT 0.00,
+    gst_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    total_line_amount DECIMAL(15,2) GENERATED ALWAYS AS (line_amount + tax_amount + gst_amount) STORED,
     quantity_received DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     quantity_billed DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     quantity_remaining DECIMAL(10,2) GENERATED ALWAYS AS (quantity - quantity_received) STORED,

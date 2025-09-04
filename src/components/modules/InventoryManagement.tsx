@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Search, Plus, Package, BarChart3, Filter } from "lucide-react";
 import { InventoryItemForm } from "@/components/forms/InventoryItemForm";
 import { BinCardForm } from "@/components/forms/BinCardForm";
@@ -66,20 +67,7 @@ export const InventoryManagement = () => {
   );
   const lowStockItems = inventory.filter(item => (Number(item.quantity) || 0) <= 10).length;
 
-  if (showAddForm) {
-    return (
-      <InventoryItemForm
-        onClose={() => setShowAddForm(false)}
-        onSave={() => {
-          setShowAddForm(false);
-          fetchInventory();
-        }}
-      />
-    );
-  }
-  if (showBinCardForm) {
-    return <BinCardForm onClose={() => setShowBinCardForm(false)} />;
-  }
+  // Remove the conditional rendering - we'll use Dialog instead
 
   return (
     <div className="p-6 space-y-6">
@@ -240,6 +228,32 @@ export const InventoryManagement = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Add Item Dialog */}
+      <Dialog open={showAddForm} onOpenChange={setShowAddForm}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add New Inventory Item</DialogTitle>
+          </DialogHeader>
+          <InventoryItemForm
+            onClose={() => setShowAddForm(false)}
+            onSave={() => {
+              setShowAddForm(false);
+              fetchInventory();
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Bin Card Dialog */}
+      <Dialog open={showBinCardForm} onOpenChange={setShowBinCardForm}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Bin Card</DialogTitle>
+          </DialogHeader>
+          <BinCardForm onClose={() => setShowBinCardForm(false)} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

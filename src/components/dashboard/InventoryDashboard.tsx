@@ -10,14 +10,19 @@ export interface InventoryItem {
   item_name: string;
   description?: string;
   category?: string;
-  quantity?: number;
-  unit_price?: number;
   location?: string;
+  brand?: string;
+  barcode?: string;
+  item_purchase_rate?: number;
+  item_sell_price?: number;
+  tax_status?: string;
+  uom_type?: string;
+  box_quantity?: number;
+  uom_type_detail?: number;
 }
 
 type LocationSummary = {
   totalValue: number;
-  status: "Low Stock" | "In Stock";
 };
 
 type GroupedData = {
@@ -42,22 +47,19 @@ export const InventoryDashboard = ({
   items.forEach((item) => {
     const category = item.category || "Uncategorized";
     const location = item.location || "Unknown";
-    const value = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
-    const isLowStock = (Number(item.quantity) || 0) <= 10;
+    const value = Number(item.item_sell_price) || 0;
 
     if (!grouped[category]) grouped[category] = {};
     if (!grouped[category][location]) {
-      grouped[category][location] = { totalValue: 0, status: "In Stock" };
+      grouped[category][location] = { totalValue: 0 };
     }
     grouped[category][location].totalValue += value;
-    if (isLowStock) grouped[category][location].status = "Low Stock";
   });
 
   const totalValue = items.reduce(
-    (sum, item) => sum + ((Number(item.quantity) || 0) * (Number(item.unit_price) || 0)),
+    (sum, item) => sum + (Number(item.item_sell_price) || 0),
     0
   );
-  const lowStockItems = items.filter(item => (Number(item.quantity) || 0) <= 10).length;
 
   if (showForm) {
   return (
@@ -93,7 +95,7 @@ export const InventoryDashboard = ({
   return (
     <div className="space-y-6">
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Inventory Value</CardTitle>
@@ -110,15 +112,6 @@ export const InventoryDashboard = ({
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{items.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Low Stock Items</CardTitle>
-            <AlertTriangle className="w-4 h-4 text-red-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{lowStockItems}</div>
           </CardContent>
         </Card>
       </div>
@@ -147,12 +140,6 @@ export const InventoryDashboard = ({
                       <span className="text-blue-700 font-bold">
                         ${data.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
-                      <Badge
-                        variant={data.status === "Low Stock" ? "destructive" : "default"}
-                        className={data.status === "Low Stock" ? "bg-red-600 text-white" : "bg-green-600 text-white"}
-                      >
-                        {data.status}
-                      </Badge>
                     </div>
                   </div>
                 ))}
