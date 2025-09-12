@@ -27,9 +27,13 @@ import {
   EyeOff,
   UserPlus,
   Settings as SettingsIcon,
-  Crown
+  Crown,
+  Receipt
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import TaxTypesForm from "@/components/forms/TaxTypesForm";
+import TaxRegimeForm from "@/components/forms/TaxRegimeForm";
+import TaxRatesForm from "@/components/forms/TaxRatesForm";
 
 const Settings = () => {
   const { toast } = useToast();
@@ -99,7 +103,7 @@ const Settings = () => {
 
         {/* Settings Tabs */}
         <Tabs defaultValue="profile" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 bg-white/70 backdrop-blur-sm">
+          <TabsList className="grid w-full grid-cols-2 md:grid-cols-6 bg-white/70 backdrop-blur-sm">
             <TabsTrigger value="profile" className="flex items-center gap-2">
               <User className="w-4 h-4" />
               <span className="hidden sm:inline">Profile</span>
@@ -115,6 +119,10 @@ const Settings = () => {
             <TabsTrigger value="system" className="flex items-center gap-2">
               <Database className="w-4 h-4" />
               <span className="hidden sm:inline">System</span>
+            </TabsTrigger>
+            <TabsTrigger value="tax-setup" className="flex items-center gap-2">
+              <Receipt className="w-4 h-4" />
+              <span className="hidden sm:inline">Tax Setup</span>
             </TabsTrigger>
             <TabsTrigger value="users" className="flex items-center gap-2">
               <Users className="w-4 h-4" />
@@ -478,6 +486,42 @@ const Settings = () => {
                   <Save className="w-4 h-4 mr-2" />
                   Save System Settings
                 </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Tax Setup Settings */}
+          <TabsContent value="tax-setup" className="space-y-6">
+            <Card className="bg-white/70 backdrop-blur-sm border-gray-200/50 shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-orange-600" />
+                  Tax Configuration
+                </CardTitle>
+                <CardDescription>
+                  Manage tax types, regimes, and rates for your organization
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue="tax-types" className="space-y-6">
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="tax-types">Tax Types</TabsTrigger>
+                    <TabsTrigger value="tax-regimes">Tax Regimes</TabsTrigger>
+                    <TabsTrigger value="tax-rates">Tax Rates</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="tax-types" className="space-y-6">
+                    <TaxTypesForm />
+                  </TabsContent>
+
+                  <TabsContent value="tax-regimes" className="space-y-6">
+                    <TaxRegimeForm />
+                  </TabsContent>
+
+                  <TabsContent value="tax-rates" className="space-y-6">
+                    <TaxRatesForm />
+                  </TabsContent>
+                </Tabs>
               </CardContent>
             </Card>
           </TabsContent>

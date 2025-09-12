@@ -795,6 +795,97 @@ class ApiService {
       method: 'DELETE'
     });
   }
+
+  // ============================================================================
+  // TAX CONFIGURATION API METHODS
+  // ============================================================================
+
+  // Tax Regimes API
+  async getTaxRegimes() {
+    return this.request('/tax/regimes');
+  }
+
+  async getTaxRegime(id) {
+    return this.request(`/tax/regimes/${id}`);
+  }
+
+  async createTaxRegime(data) {
+    return this.request('/tax/regimes', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateTaxRegime(id, data) {
+    return this.request(`/tax/regimes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deleteTaxRegime(id) {
+    return this.request(`/tax/regimes/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Tax Types API
+  async getTaxTypes() {
+    return this.request('/tax/types');
+  }
+
+  async getTaxType(id) {
+    return this.request(`/tax/types/${id}`);
+  }
+
+  async createTaxType(data) {
+    return this.request('/tax/types', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateTaxType(id, data) {
+    return this.request(`/tax/types/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deleteTaxType(id) {
+    return this.request(`/tax/types/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Tax Rates API
+  async getTaxRates() {
+    return this.request('/tax/rates');
+  }
+
+  async getTaxRate(id) {
+    return this.request(`/tax/rates/${id}`);
+  }
+
+  async createTaxRate(data) {
+    return this.request('/tax/rates', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async updateTaxRate(id, data) {
+    return this.request(`/tax/rates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async deleteTaxRate(id) {
+    return this.request(`/tax/rates/${id}`, {
+      method: 'DELETE'
+    });
+  }
 }
 
 // Create singleton instance

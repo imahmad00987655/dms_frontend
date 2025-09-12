@@ -19,6 +19,9 @@ import apPaymentsRoutes from './routes/apPayments.js';
 import customerSupplierRoutes from './routes/customerSupplier.js';
 import procurementRoutes from './routes/procurement.js';
 import partiesRoutes from './routes/parties.js';
+import taxRegimesRoutes from './routes/taxRegimes.js';
+import taxTypesRoutes from './routes/taxTypes.js';
+import taxRatesRoutes from './routes/taxRates.js';
 
 
 // Load environment variables
@@ -427,6 +430,11 @@ app.use('/api/customer-supplier', customerSupplierRoutes);
 // Procurement System Routes
 app.use('/api/procurement', procurementRoutes);
 app.use('/api/parties', partiesRoutes);
+
+// Tax Configuration Routes
+app.use('/api/tax/regimes', taxRegimesRoutes);
+app.use('/api/tax/types', taxTypesRoutes);
+app.use('/api/tax/rates', taxRatesRoutes);
 
 
 // 404 handler

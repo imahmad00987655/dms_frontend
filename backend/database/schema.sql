@@ -1332,3 +1332,116 @@ INSERT INTO po_user_preferences (user_id, preference_key, preference_value) VALU
 (1, 'dashboard_layout', 'default'),
 (1, 'notifications_enabled', 'true')
 ON DUPLICATE KEY UPDATE preference_value=VALUES(preference_value);
+
+-- ============================================================================
+-- TAX CONFIGURATION SYSTEM
+-- ============================================================================
+
+-- Tax Regimes table
+CREATE TABLE IF NOT EXISTS tax_regimes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    regime_code VARCHAR(20) UNIQUE NOT NULL,
+    regime_name VARCHAR(100) NOT NULL,
+    regime_type ENUM('TRANSACTION_TAX', 'WITHHOLDING_TAX') NOT NULL,
+    tax_authority VARCHAR(255),
+    effective_date DATE NOT NULL,
+    end_date DATE NULL,
+    status ENUM('ACTIVE', 'INACTIVE', 'EXPIRED') DEFAULT 'ACTIVE',
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_regime_code (regime_code),
+    INDEX idx_regime_name (regime_name),
+    INDEX idx_regime_type (regime_type),
+    INDEX idx_effective_date (effective_date),
+    INDEX idx_status (status),
+    INDEX idx_created_by (created_by)
+);
+
+-- Tax Types table
+CREATE TABLE IF NOT EXISTS tax_types (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tax_type_code VARCHAR(20) UNIQUE NOT NULL,
+    tax_type_name VARCHAR(100) NOT NULL,
+    regime_id INT NOT NULL,
+    operating_unit VARCHAR(50),
+    ledger VARCHAR(100),
+    liability_account VARCHAR(100),
+    rounding_account VARCHAR(100),
+    is_withholding_tax BOOLEAN DEFAULT FALSE,
+    is_self_assessed BOOLEAN DEFAULT FALSE,
+    is_recoverable BOOLEAN DEFAULT FALSE,
+    status ENUM('ACTIVE', 'INACTIVE') DEFAULT 'ACTIVE',
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (regime_id) REFERENCES tax_regimes(id) ON DELETE RESTRICT,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_tax_type_code (tax_type_code),
+    INDEX idx_tax_type_name (tax_type_name),
+    INDEX idx_regime_id (regime_id),
+    INDEX idx_operating_unit (operating_unit),
+    INDEX idx_status (status),
+    INDEX idx_created_by (created_by)
+);
+
+-- Tax Rates table
+CREATE TABLE IF NOT EXISTS tax_rates (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    rate_code VARCHAR(20) UNIQUE NOT NULL,
+    tax_percentage DECIMAL(5,2) NOT NULL,
+    tax_type_id INT NOT NULL,
+    effective_date DATE NOT NULL,
+    end_date DATE NULL,
+    is_recoverable BOOLEAN DEFAULT FALSE,
+    is_inclusive BOOLEAN DEFAULT FALSE,
+    is_self_assessable BOOLEAN DEFAULT FALSE,
+    status ENUM('ACTIVE', 'INACTIVE', 'EXPIRED') DEFAULT 'ACTIVE',
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (tax_type_id) REFERENCES tax_types(id) ON DELETE RESTRICT,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_rate_code (rate_code),
+    INDEX idx_tax_percentage (tax_percentage),
+    INDEX idx_tax_type_id (tax_type_id),
+    INDEX idx_effective_date (effective_date),
+    INDEX idx_status (status),
+    INDEX idx_created_by (created_by)
+);
+
+
+-- Tax Configuration Audit Log
+CREATE TABLE IF NOT EXISTS tax_audit_log (
+    audit_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    table_name ENUM('TAX_REGIMES', 'TAX_TYPES', 'TAX_STATUSES', 'TAX_RATES') NOT NULL,
+    record_id INT NOT NULL,
+    old_values JSON,
+    new_values JSON,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_user_id (user_id),
+    INDEX idx_action (action),
+    INDEX idx_table_name (table_name),
+    INDEX idx_record_id (record_id),
+    INDEX idx_created_at (created_at)
+);
+
+-- Tax Configuration Settings
+CREATE TABLE IF NOT EXISTS tax_settings (
+    setting_id INT AUTO_INCREMENT PRIMARY KEY,
+    setting_name VARCHAR(100) UNIQUE NOT NULL,
+    setting_value TEXT,
+    setting_type ENUM('STRING', 'NUMBER', 'BOOLEAN', 'JSON') DEFAULT 'STRING',
+    description TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_setting_name (setting_name),
+    INDEX idx_is_active (is_active)
+);
