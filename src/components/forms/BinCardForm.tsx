@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { X, Package, BarChart3 } from "lucide-react";
+import { Package, BarChart3 } from "lucide-react";
 import apiService from '@/services/api';
 import type { BinCard } from "@/components/dashboard/BinCardDashboard";
 
@@ -63,16 +63,13 @@ export const BinCardForm = ({ onClose, onSave }: BinCardFormProps) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+    <div className="w-full">
+      <Card className="w-full">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <Package className="w-5 h-5" />
             Bin Card Management
           </CardTitle>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            <X className="w-4 h-4" />
-          </Button>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

@@ -6,13 +6,40 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { CalendarIcon, Plus, Save, Edit, Trash2, Eye } from "lucide-react";
+import { CalendarIcon, Plus, Save, Edit, Eye } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import apiService from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
+
+// Helper function to format date without timezone issues
+const formatDateForDisplay = (dateString: string) => {
+  if (!dateString || dateString === 'null' || dateString === 'undefined') return "N/A";
+  
+  try {
+    // Handle different date formats
+    let date;
+    if (dateString.includes('T')) {
+      // Already has time component
+      date = new Date(dateString);
+    } else {
+      // Add time component to prevent timezone issues
+      date = new Date(dateString + 'T00:00:00');
+    }
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      return "Invalid Date";
+    }
+    
+    return format(date, 'dd-MM-yyyy');
+  } catch (error) {
+    console.error('Error formatting date:', error, 'Input:', dateString);
+    return "Invalid Date";
+  }
+};
 
 interface TaxRegime {
   id: number;
@@ -27,7 +54,9 @@ interface TaxRegime {
 
 const TaxRegimeForm = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [editingTaxRegime, setEditingTaxRegime] = useState<TaxRegime | null>(null);
+  const [viewingTaxRegime, setViewingTaxRegime] = useState<TaxRegime | null>(null);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
@@ -83,34 +112,16 @@ const TaxRegimeForm = () => {
     setIsDialogOpen(true);
   };
 
+  const handleView = (taxRegime: TaxRegime) => {
+    setViewingTaxRegime(taxRegime);
+    setIsViewDialogOpen(true);
+  };
+
   const handleAddNew = () => {
     setEditingTaxRegime(null);
     setIsDialogOpen(true);
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this tax regime?')) {
-      return;
-    }
-
-    try {
-      const response = await apiService.deleteTaxRegime(id);
-      if (response.success) {
-        toast({
-          title: "Success",
-          description: "Tax regime deleted successfully",
-        });
-        loadTaxRegimes();
-      }
-    } catch (error) {
-      console.error('Error deleting tax regime:', error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete tax regime",
-        variant: "destructive",
-      });
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -145,6 +156,51 @@ const TaxRegimeForm = () => {
         </Dialog>
       </div>
 
+      {/* View Dialog */}
+      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Tax Regime Details</DialogTitle>
+          </DialogHeader>
+          {viewingTaxRegime && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Code</Label>
+                  <p className="text-sm font-medium">{viewingTaxRegime.code || "N/A"}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Name</Label>
+                  <p className="text-sm font-medium">{viewingTaxRegime.name || "N/A"}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Type</Label>
+                  <Badge variant="outline">{viewingTaxRegime.type || "N/A"}</Badge>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Tax Authority</Label>
+                  <p className="text-sm font-medium">{viewingTaxRegime.taxAuthority || "N/A"}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Effective Date</Label>
+                  <p className="text-sm font-medium">{formatDateForDisplay(viewingTaxRegime.effectiveDate || "")}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">End Date</Label>
+                  <p className="text-sm font-medium">{formatDateForDisplay(viewingTaxRegime.endDate || "")}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Status</Label>
+                  <Badge variant={viewingTaxRegime.status === 'Active' ? 'default' : 'secondary'}>
+                    {viewingTaxRegime.status || "N/A"}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Data Table */}
       <Card>
         <CardHeader>
@@ -159,8 +215,6 @@ const TaxRegimeForm = () => {
                   <th className="text-left py-2 px-2">Name</th>
                   <th className="text-left py-2 px-2">Type</th>
                   <th className="text-left py-2 px-2">Tax Authority</th>
-                  <th className="text-left py-2 px-2">Effective Date</th>
-                  <th className="text-left py-2 px-2">End Date</th>
                   <th className="text-left py-2 px-2">Status</th>
                   <th className="text-left py-2 px-2">Actions</th>
                 </tr>
@@ -168,7 +222,7 @@ const TaxRegimeForm = () => {
               <tbody>
                 {taxRegimes.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-8 px-4 text-center text-gray-500">
+                    <td colSpan={6} className="py-8 px-4 text-center text-gray-500">
                       <div className="flex flex-col items-center gap-2">
                         <div className="text-4xl">🏛️</div>
                         <p>No tax regimes found</p>
@@ -185,8 +239,6 @@ const TaxRegimeForm = () => {
                         <Badge variant="outline">{regime.type}</Badge>
                       </td>
                       <td className="py-3 px-2 max-w-xs truncate">{regime.taxAuthority}</td>
-                      <td className="py-3 px-2">{regime.effectiveDate}</td>
-                      <td className="py-3 px-2">{regime.endDate || "N/A"}</td>
                       <td className="py-3 px-2">
                         <Badge variant={regime.status === 'Active' ? 'default' : 'secondary'}>
                           {regime.status}
@@ -194,15 +246,12 @@ const TaxRegimeForm = () => {
                       </td>
                       <td className="py-3 px-2">
                         <div className="flex gap-1">
-                          <Button variant="ghost" size="sm">
+                          <Button variant="ghost" size="sm" onClick={() => handleView(regime)}>
                             <Eye className="h-4 w-4" />
                           </Button>
                           <Button variant="ghost" size="sm" onClick={() => handleEdit(regime)}>
                             <Edit className="h-4 w-4" />
                           </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDelete(regime.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
                         </div>
                       </td>
                     </tr>

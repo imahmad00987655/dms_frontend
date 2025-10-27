@@ -43,7 +43,7 @@ interface PartySite {
   site_id: number;
   party_id: number;
   site_name: string;
-  site_type: 'BILL_TO' | 'SHIP_TO' | 'BOTH';
+  site_type: 'INVOICING' | 'PURCHASING' | 'BOTH';
   address_line1?: string;
   address_line2?: string;
   address_line3?: string;
@@ -69,7 +69,7 @@ interface SupplierSite {
   site_id: number;
   supplier_id: number;
   site_name: string;
-  site_type: 'BILL_TO' | 'SHIP_TO' | 'BOTH';
+  site_type: 'INVOICING' | 'PURCHASING' | 'BOTH';
   address_line1?: string;
   address_line2?: string;
   city?: string;
@@ -157,10 +157,11 @@ export const CustomerSupplierManagement: React.FC = () => {
   
   // Form states
   const [showPartyForm, setShowPartyForm] = useState(false);
-  const [showCustomerForm, setShowCustomerForm] = useState(false);
-  const [showSupplierForm, setShowSupplierForm] = useState(false);
   const [showSiteForm, setShowSiteForm] = useState(false);
   const [showContactForm, setShowContactForm] = useState(false);
+  
+  // Full-page form states
+  const [currentView, setCurrentView] = useState<'list' | 'customer-form' | 'supplier-form'>('list');
   const [partyToEdit, setPartyToEdit] = useState<Party | null>(null);
   const [selectedSite, setSelectedSite] = useState<PartySite | SupplierSite | null>(null);
   const [selectedContact, setSelectedContact] = useState<ContactPoint | null>(null);
@@ -324,14 +325,14 @@ export const CustomerSupplierManagement: React.FC = () => {
 
   const handleEditCustomer = (customer: CustomerProfile) => {
     setCustomerToEdit(customer);
-    setShowCustomerForm(true);
+    setCurrentView('customer-form');
   };
 
 
 
   const handleEditSupplier = (supplier: SupplierProfile) => {
     setSupplierToEdit(supplier);
-    setShowSupplierForm(true);
+    setCurrentView('supplier-form');
   };
 
 
@@ -401,6 +402,43 @@ export const CustomerSupplierManagement: React.FC = () => {
     );
   };
 
+  // Handle full-page form views
+  if (currentView === 'customer-form') {
+    return (
+      <CustomerForm 
+        onClose={() => {
+          setCurrentView('list');
+          setCustomerToEdit(null);
+        }} 
+        onSuccess={() => {
+          setCurrentView('list');
+          setCustomerToEdit(null);
+          loadCustomers();
+          toast.success(customerToEdit ? 'Customer profile updated successfully' : 'Customer profile created successfully');
+        }}
+        customerToEdit={customerToEdit}
+      />
+    );
+  }
+
+  if (currentView === 'supplier-form') {
+    return (
+      <SupplierForm 
+        onClose={() => {
+          setCurrentView('list');
+          setSupplierToEdit(null);
+        }} 
+        onSuccess={() => {
+          setCurrentView('list');
+          setSupplierToEdit(null);
+          loadSuppliers();
+          toast.success(supplierToEdit ? 'Supplier profile updated successfully' : 'Supplier profile created successfully');
+        }}
+        supplierToEdit={supplierToEdit}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -416,11 +454,17 @@ export const CustomerSupplierManagement: React.FC = () => {
             <Plus className="w-4 h-4 mr-2" />
             New Party
           </Button>
-          <Button onClick={() => setShowCustomerForm(true)} variant="outline">
+          <Button onClick={() => {
+            setCustomerToEdit(null);
+            setCurrentView('customer-form');
+          }} variant="outline">
             <UserCheck className="w-4 h-4 mr-2" />
             New Customer
           </Button>
-          <Button onClick={() => setShowSupplierForm(true)} variant="outline">
+          <Button onClick={() => {
+            setSupplierToEdit(null);
+            setCurrentView('supplier-form');
+          }} variant="outline">
             <Truck className="w-4 h-4 mr-2" />
             New Supplier
           </Button>
@@ -1220,63 +1264,6 @@ export const CustomerSupplierManagement: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Customer Form Dialog */}
-      <Dialog open={showCustomerForm} onOpenChange={(open) => {
-        setShowCustomerForm(open);
-        if (!open) {
-          setCustomerToEdit(null);
-        }
-      }}>
-        <DialogContent className="max-w-5xl max-h-[95vh] overflow-hidden flex flex-col">
-          <DialogHeader className="flex-shrink-0">
-            <DialogTitle>{customerToEdit ? 'Edit Customer Profile' : 'Create Customer Profile'}</DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-hidden min-h-0">
-            <CustomerForm 
-              onClose={() => {
-                setShowCustomerForm(false);
-                setCustomerToEdit(null);
-              }} 
-              onSuccess={() => {
-                setShowCustomerForm(false);
-                setCustomerToEdit(null);
-                loadCustomers();
-                toast.success(customerToEdit ? 'Customer profile updated successfully' : 'Customer profile created successfully');
-              }}
-              customerToEdit={customerToEdit}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Supplier Form Dialog */}
-      <Dialog open={showSupplierForm} onOpenChange={(open) => {
-        setShowSupplierForm(open);
-        if (!open) {
-          setSupplierToEdit(null);
-        }
-      }}>
-                <DialogContent className="max-w-5xl max-h-[95vh] overflow-hidden flex flex-col">
-          <DialogHeader className="flex-shrink-0">
-            <DialogTitle>{supplierToEdit ? 'Edit Supplier Profile' : 'Create Supplier Profile'}</DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-hidden min-h-0">
-            <SupplierForm 
-              onClose={() => {
-                setShowSupplierForm(false);
-                setSupplierToEdit(null);
-              }} 
-              onSuccess={() => {
-                setShowSupplierForm(false);
-                setSupplierToEdit(null);
-                loadSuppliers();
-                toast.success(supplierToEdit ? 'Supplier profile updated successfully' : 'Supplier profile created successfully');
-              }}
-              supplierToEdit={supplierToEdit}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Site Form Dialog */}
       <Dialog open={showSiteForm} onOpenChange={setShowSiteForm}>

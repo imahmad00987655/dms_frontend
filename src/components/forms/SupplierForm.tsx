@@ -187,10 +187,20 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ onClose, onSuccess, 
   const selectedParty = parties.find(party => party.party_id === formData.party_id);
 
   return (
-    <div className="space-y-6 h-full flex flex-col animate-in fade-in duration-300">
-      <form onSubmit={handleSubmit} className="space-y-6 flex-1 flex flex-col">
-        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar modal-scroll-container min-h-0">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 p-4 lg:p-6 bg-white rounded-lg border border-gray-200 shadow-sm">
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h1 className="text-2xl font-semibold text-gray-900">
+              {supplierToEdit ? 'Edit Supplier Profile' : 'Create Supplier Profile'}
+            </h1>
+            <p className="mt-1 text-sm text-gray-600">
+              {supplierToEdit ? 'Update supplier information and settings' : 'Add a new supplier to your system'}
+            </p>
+          </div>
+          
+          <form onSubmit={handleSubmit} className="p-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700">Party *</label>
             {partiesLoading ? (
@@ -382,24 +392,21 @@ export const SupplierForm: React.FC<SupplierFormProps> = ({ onClose, onSuccess, 
               </SelectContent>
             </Select>
           </div>
+            </div>
+            
+            <div className="flex justify-end gap-3 pt-6 mt-6 border-t border-gray-200">
+              <Button type="button" variant="outline" onClick={onClose} className="px-6">
+                Cancel
+              </Button>
+              <Button type="submit" disabled={loading} className="px-6">
+                {loading ? 'Saving...' : (supplierToEdit ? 'Update Supplier' : 'Create Supplier')}
+              </Button>
+            </div>
+          </form>
         </div>
-        </div>
-        
-        <div className="flex justify-end gap-3 pt-6 border-t border-gray-200 bg-white sticky bottom-0">
-          <Button type="button" variant="outline" onClick={onClose} className="px-6">
-            Cancel
-          </Button>
-          <Button type="submit" disabled={loading} className="px-6">
-            {loading ? 'Saving...' : (supplierToEdit ? 'Update Supplier' : 'Create Supplier')}
-          </Button>
-        </div>
-      </form>
-
-
-
-
-     </div>
-   );
+      </div>
+    </div>
+  );
  };
 
 

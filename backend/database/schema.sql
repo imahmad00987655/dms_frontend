@@ -81,7 +81,164 @@ INSERT INTO users (first_name, last_name, email, password_hash, company, role, i
 VALUES ('Admin', 'User', 'admin@accuflow.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'AccuFlow', 'admin', TRUE)
 ON DUPLICATE KEY UPDATE id=id;
 
--- Chart of Accounts table
+-- ============================================================================
+-- CHART OF ACCOUNTS SYSTEM (Flexible Segmented Structure)
+-- ============================================================================
+
+-- Chart of Accounts Segments Structure
+CREATE TABLE IF NOT EXISTS coa_segments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    segment_name VARCHAR(100) NOT NULL,
+    segment_length INT NOT NULL,
+    value_set_name VARCHAR(100),
+    display_order INT DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_segment_name (segment_name),
+    INDEX idx_is_active (is_active),
+    INDEX idx_display_order (display_order)
+);
+
+-- Value Sets (Independent or Table-based)
+CREATE TABLE IF NOT EXISTS coa_value_sets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    value_set_name VARCHAR(100) UNIQUE NOT NULL,
+    value_set_type ENUM('INDEPENDENT', 'TABLE') NOT NULL DEFAULT 'INDEPENDENT',
+    description TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_value_set_name (value_set_name),
+    INDEX idx_value_set_type (value_set_type),
+    INDEX idx_is_active (is_active)
+);
+
+-- Value Set Values (Actual codes and descriptions)
+CREATE TABLE IF NOT EXISTS coa_value_set_values (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    value_set_id INT NOT NULL,
+    value_code VARCHAR(50) NOT NULL,
+    value_description VARCHAR(255) NOT NULL,
+    display_order INT DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (value_set_id) REFERENCES coa_value_sets(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_value_set_code (value_set_id, value_code),
+    INDEX idx_value_set_id (value_set_id),
+    INDEX idx_value_code (value_code),
+    INDEX idx_display_order (display_order),
+    INDEX idx_is_active (is_active)
+);
+
+-- CoA Instances (Chart of Account Definitions)
+CREATE TABLE IF NOT EXISTS coa_instances (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    coa_code VARCHAR(50) UNIQUE NOT NULL,
+    coa_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    status ENUM('ACTIVE', 'INACTIVE') DEFAULT 'ACTIVE',
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_coa_code (coa_code),
+    INDEX idx_coa_name (coa_name),
+    INDEX idx_status (status),
+    INDEX idx_created_by (created_by)
+);
+
+-- CoA Segment Instances (Mapping segments to a CoA)
+CREATE TABLE IF NOT EXISTS coa_segment_instances (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    coa_instance_id INT NOT NULL,
+    segment_name VARCHAR(100) NOT NULL,
+    segment_length INT NOT NULL,
+    value_set_name VARCHAR(100),
+    display_order INT DEFAULT 0,
+    FOREIGN KEY (coa_instance_id) REFERENCES coa_instances(id) ON DELETE CASCADE,
+    INDEX idx_coa_instance_id (coa_instance_id),
+    INDEX idx_segment_name (segment_name),
+    INDEX idx_display_order (display_order)
+);
+
+-- Ledger Configurations
+CREATE TABLE IF NOT EXISTS ledger_configurations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ledger_name VARCHAR(255) NOT NULL,
+    ledger_type ENUM('PRIMARY', 'SECONDARY', 'SUBSIDIARY') DEFAULT 'PRIMARY',
+    currency VARCHAR(10) DEFAULT 'USD',
+    coa_instance_id INT NOT NULL,
+    accounting_method ENUM('ACCRUAL', 'CASH') DEFAULT 'ACCRUAL',
+    ar_ap_enabled BOOLEAN DEFAULT TRUE,
+    status ENUM('ACTIVE', 'INACTIVE') DEFAULT 'ACTIVE',
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (coa_instance_id) REFERENCES coa_instances(id) ON DELETE RESTRICT,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    UNIQUE KEY uk_ledger_name (ledger_name),
+    INDEX idx_ledger_type (ledger_type),
+    INDEX idx_currency (currency),
+    INDEX idx_coa_instance_id (coa_instance_id),
+    INDEX idx_accounting_method (accounting_method),
+    INDEX idx_status (status),
+    INDEX idx_created_by (created_by)
+);
+
+-- Header Assignments (Module assignments to ledgers)
+CREATE TABLE IF NOT EXISTS ledger_header_assignments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    header_name VARCHAR(255) NOT NULL,
+    ledger_id INT NOT NULL,
+    module_type ENUM('AR', 'AP', 'PO', 'INVENTORY', 'ASSETS', 'GL', 'ALL') NOT NULL,
+    validation_rules JSON,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (ledger_id) REFERENCES ledger_configurations(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_header_name (header_name),
+    INDEX idx_ledger_id (ledger_id),
+    INDEX idx_module_type (module_type),
+    INDEX idx_is_active (is_active),
+    INDEX idx_created_by (created_by)
+);
+
+-- Account Combinations (Actual account codes based on segments)
+CREATE TABLE IF NOT EXISTS account_combinations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    account_code VARCHAR(255) UNIQUE NOT NULL,
+    coa_instance_id INT NOT NULL,
+    segment1_value VARCHAR(100),
+    segment2_value VARCHAR(100),
+    segment3_value VARCHAR(100),
+    segment4_value VARCHAR(100),
+    segment5_value VARCHAR(100),
+    segment6_value VARCHAR(100),
+    segment7_value VARCHAR(100),
+    segment8_value VARCHAR(100),
+    account_description VARCHAR(500),
+    account_type ENUM('ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE') NOT NULL,
+    parent_account_id INT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (coa_instance_id) REFERENCES coa_instances(id) ON DELETE RESTRICT,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    FOREIGN KEY (parent_account_id) REFERENCES account_combinations(id) ON DELETE SET NULL,
+    INDEX idx_account_code (account_code),
+    INDEX idx_coa_instance_id (coa_instance_id),
+    INDEX idx_account_type (account_type),
+    INDEX idx_parent_account_id (parent_account_id),
+    INDEX idx_is_active (is_active),
+    INDEX idx_created_by (created_by)
+);
+
+-- Original Chart of Accounts table (keeping for backward compatibility)
 CREATE TABLE IF NOT EXISTS chart_of_accounts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     account_code VARCHAR(20) UNIQUE NOT NULL,
@@ -95,7 +252,7 @@ CREATE TABLE IF NOT EXISTS chart_of_accounts (
     INDEX idx_account_code (account_code),
     INDEX idx_account_type (account_type),
     INDEX idx_is_active (is_active)
-);
+    );
 
 -- Journal Entries table
 CREATE TABLE IF NOT EXISTS journal_entries (
@@ -160,6 +317,7 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     category VARCHAR(50),
     location VARCHAR(100),
     brand VARCHAR(100),
+    supplier_id INT,
     barcode VARCHAR(100),
     item_purchase_rate DECIMAL(15,2) DEFAULT 0.00,
     item_sell_price DECIMAL(15,2) DEFAULT 0.00,
@@ -169,9 +327,11 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     uom_type_detail DECIMAL(15,2) DEFAULT 0.00,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (supplier_id) REFERENCES ap_suppliers(supplier_id) ON DELETE SET NULL,
     INDEX idx_item_code (item_code),
     INDEX idx_category (category),
     INDEX idx_brand (brand),
+    INDEX idx_supplier_id (supplier_id),
     INDEX idx_barcode (barcode)
 );
 
@@ -474,7 +634,7 @@ CREATE TABLE IF NOT EXISTS ap_supplier_sites (
     site_id BIGINT PRIMARY KEY,
     supplier_id BIGINT NOT NULL,
     site_name VARCHAR(255) NOT NULL,
-    site_type ENUM('BILL_TO', 'SHIP_TO', 'BOTH') DEFAULT 'BILL_TO',
+    site_type ENUM('INVOICING', 'PURCHASING', 'BOTH') DEFAULT 'INVOICING',
     address_line1 VARCHAR(255),
     address_line2 VARCHAR(255),
     city VARCHAR(100),
@@ -1101,6 +1261,67 @@ INSERT INTO po_settings (setting_name, setting_value, setting_type, description)
 ('ENABLE_SERIAL_TRACKING', 'false', 'BOOLEAN', 'Enable serial number tracking for receipts')
 ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), description=VALUES(description);
 
+-- ============================================================================
+-- COMPANY SETUP SYSTEM
+-- ============================================================================
+
+-- Companies table
+CREATE TABLE IF NOT EXISTS companies (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    company_code VARCHAR(20) UNIQUE NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    legal_name VARCHAR(255) NOT NULL,
+    registration_number VARCHAR(100) UNIQUE NOT NULL,
+    country VARCHAR(100),
+    currency VARCHAR(10) DEFAULT 'USD',
+    fiscal_year_start DATE,
+    status ENUM('Active', 'Inactive', 'Suspended') DEFAULT 'Active',
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_company_code (company_code),
+    INDEX idx_name (name),
+    INDEX idx_registration_number (registration_number),
+    INDEX idx_country (country),
+    INDEX idx_status (status),
+    INDEX idx_created_by (created_by)
+);
+-- Company Locations table
+CREATE TABLE IF NOT EXISTS company_locations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    company_id INT NOT NULL,
+    location_code VARCHAR(50) NOT NULL,
+    location_name VARCHAR(255) NOT NULL,
+    location_type ENUM('WAREHOUSE', 'OFFICE', 'RETAIL_STORE', 'DISTRIBUTION_CENTER', 'MANUFACTURING_PLANT', 'OTHER') DEFAULT 'WAREHOUSE',
+    address_line1 VARCHAR(255),
+    address_line2 VARCHAR(255),
+    city VARCHAR(100),
+    state VARCHAR(50),
+    postal_code VARCHAR(20),
+    country VARCHAR(100),
+    phone VARCHAR(50),
+    email VARCHAR(255),
+    contact_person VARCHAR(255),
+    is_primary BOOLEAN DEFAULT FALSE,
+    is_active BOOLEAN DEFAULT TRUE,
+    status ENUM('ACTIVE', 'INACTIVE', 'SUSPENDED') DEFAULT 'ACTIVE',
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    UNIQUE KEY unique_company_location_code (company_id, location_code),
+    INDEX idx_company_id (company_id),
+    INDEX idx_location_code (location_code),
+    INDEX idx_location_name (location_name),
+    INDEX idx_location_type (location_type),
+    INDEX idx_is_primary (is_primary),
+    INDEX idx_is_active (is_active),
+    INDEX idx_status (status),
+    INDEX idx_created_by (created_by)
+);
+
 -- Procurement Document Numbers (PO_DOCUMENT_NUMBERS)
 CREATE TABLE IF NOT EXISTS po_document_numbers (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -1445,3 +1666,119 @@ CREATE TABLE IF NOT EXISTS tax_settings (
     INDEX idx_setting_name (setting_name),
     INDEX idx_is_active (is_active)
 );
+
+-- ============================================================================
+-- INSERT DEFAULT CHART OF ACCOUNTS DATA
+-- ============================================================================
+
+-- Insert default CoA segments
+INSERT INTO coa_segments (segment_name, segment_length, value_set_name, display_order) VALUES
+('Company', 4, 'Company Values', 1),
+('Product', 5, NULL, 2),
+('Cost Center', 4, 'Cost Centers', 3),
+('Account', 6, NULL, 4),
+('Project', 4, 'Projects', 5)
+ON DUPLICATE KEY UPDATE segment_length=VALUES(segment_length), value_set_name=VALUES(value_set_name);
+
+-- Insert default value sets
+INSERT INTO coa_value_sets (value_set_name, value_set_type, description) VALUES
+('Company Values', 'TABLE', 'Company segments for multi-company operations'),
+('Cost Centers', 'TABLE', 'Department and cost center segments'),
+('Projects', 'TABLE', 'Project segments for project-based accounting'),
+('AR Accounts', 'INDEPENDENT', 'Accounts Receivable accounts'),
+('AP Accounts', 'INDEPENDENT', 'Accounts Payable accounts'),
+('Inventory Types', 'INDEPENDENT', 'Inventory type classifications')
+ON DUPLICATE KEY UPDATE description=VALUES(description);
+
+-- Insert value set values for Company
+INSERT INTO coa_value_set_values (value_set_id, value_code, value_description, display_order)
+SELECT vs.id, '001', 'AccuFlow Distribution', 1 FROM coa_value_sets vs WHERE vs.value_set_name = 'Company Values'
+UNION ALL
+SELECT vs.id, '002', 'AccuFlow Logistics', 2 FROM coa_value_sets vs WHERE vs.value_set_name = 'Company Values'
+UNION ALL
+SELECT vs.id, '003', 'AccuFlow Retail', 3 FROM coa_value_sets vs WHERE vs.value_set_name = 'Company Values'
+ON DUPLICATE KEY UPDATE value_description=VALUES(value_description);
+
+-- Insert value set values for Cost Centers
+INSERT INTO coa_value_set_values (value_set_id, value_code, value_description, display_order)
+SELECT vs.id, '001', 'Administration', 1 FROM coa_value_sets vs WHERE vs.value_set_name = 'Cost Centers'
+UNION ALL
+SELECT vs.id, '002', 'Sales', 2 FROM coa_value_sets vs WHERE vs.value_set_name = 'Cost Centers'
+UNION ALL
+SELECT vs.id, '003', 'Marketing', 3 FROM coa_value_sets vs WHERE vs.value_set_name = 'Cost Centers'
+UNION ALL
+SELECT vs.id, '004', 'Operations', 4 FROM coa_value_sets vs WHERE vs.value_set_name = 'Cost Centers'
+ON DUPLICATE KEY UPDATE value_description=VALUES(value_description);
+
+-- Insert value set values for Projects
+INSERT INTO coa_value_set_values (value_set_id, value_code, value_description, display_order)
+SELECT vs.id, '001', 'Project Alpha', 1 FROM coa_value_sets vs WHERE vs.value_set_name = 'Projects'
+UNION ALL
+SELECT vs.id, '002', 'Project Beta', 2 FROM coa_value_sets vs WHERE vs.value_set_name = 'Projects'
+UNION ALL
+SELECT vs.id, '003', 'Project Gamma', 3 FROM coa_value_sets vs WHERE vs.value_set_name = 'Projects'
+ON DUPLICATE KEY UPDATE value_description=VALUES(value_description);
+
+-- Insert value set values for AR Accounts
+INSERT INTO coa_value_set_values (value_set_id, value_code, value_description, display_order)
+SELECT vs.id, 'AR-001', 'Customer Receivables', 1 FROM coa_value_sets vs WHERE vs.value_set_name = 'AR Accounts'
+UNION ALL
+SELECT vs.id, 'AR-002', 'Trade Receivables', 2 FROM coa_value_sets vs WHERE vs.value_set_name = 'AR Accounts'
+UNION ALL
+SELECT vs.id, 'AR-003', 'Other Receivables', 3 FROM coa_value_sets vs WHERE vs.value_set_name = 'AR Accounts'
+ON DUPLICATE KEY UPDATE value_description=VALUES(value_description);
+
+-- Insert value set values for AP Accounts
+INSERT INTO coa_value_set_values (value_set_id, value_code, value_description, display_order)
+SELECT vs.id, 'AP-001', 'Trade Payables', 1 FROM coa_value_sets vs WHERE vs.value_set_name = 'AP Accounts'
+UNION ALL
+SELECT vs.id, 'AP-002', 'Accrued Expenses', 2 FROM coa_value_sets vs WHERE vs.value_set_name = 'AP Accounts'
+UNION ALL
+SELECT vs.id, 'AP-003', 'Other Payables', 3 FROM coa_value_sets vs WHERE vs.value_set_name = 'AP Accounts'
+ON DUPLICATE KEY UPDATE value_description=VALUES(value_description);
+
+-- Insert value set values for Inventory Types
+INSERT INTO coa_value_set_values (value_set_id, value_code, value_description, display_order)
+SELECT vs.id, 'INV-001', 'Finished Goods', 1 FROM coa_value_sets vs WHERE vs.value_set_name = 'Inventory Types'
+UNION ALL
+SELECT vs.id, 'INV-002', 'Raw Materials', 2 FROM coa_value_sets vs WHERE vs.value_set_name = 'Inventory Types'
+UNION ALL
+SELECT vs.id, 'INV-003', 'Work in Process', 3 FROM coa_value_sets vs WHERE vs.value_set_name = 'Inventory Types'
+UNION ALL
+SELECT vs.id, 'INV-004', 'Supplies', 4 FROM coa_value_sets vs WHERE vs.value_set_name = 'Inventory Types'
+ON DUPLICATE KEY UPDATE value_description=VALUES(value_description);
+
+-- Insert default CoA instance
+INSERT INTO coa_instances (coa_code, coa_name, description, status, created_by) VALUES
+('DIST_COA', 'Distribution CoA', 'Standard chart of accounts for distribution operations', 'ACTIVE', 1)
+ON DUPLICATE KEY UPDATE coa_name=VALUES(coa_name), description=VALUES(description);
+
+-- Insert CoA segment instances
+INSERT INTO coa_segment_instances (coa_instance_id, segment_name, segment_length, value_set_name, display_order)
+SELECT ci.id, 'Company', 4, 'Company Values', 1 FROM coa_instances ci WHERE ci.coa_code = 'DIST_COA'
+UNION ALL
+SELECT ci.id, 'Product', 5, NULL, 2 FROM coa_instances ci WHERE ci.coa_code = 'DIST_COA'
+UNION ALL
+SELECT ci.id, 'Cost Center', 4, 'Cost Centers', 3 FROM coa_instances ci WHERE ci.coa_code = 'DIST_COA'
+UNION ALL
+SELECT ci.id, 'Account', 6, NULL, 4 FROM coa_instances ci WHERE ci.coa_code = 'DIST_COA'
+ON DUPLICATE KEY UPDATE segment_length=VALUES(segment_length), value_set_name=VALUES(value_set_name);
+
+-- Insert default ledger configuration
+INSERT INTO ledger_configurations (ledger_name, ledger_type, currency, coa_instance_id, accounting_method, ar_ap_enabled, status, created_by)
+SELECT 'Primary Distribution Ledger', 'PRIMARY', 'USD', ci.id, 'ACCRUAL', TRUE, 'ACTIVE', 1
+FROM coa_instances ci WHERE ci.coa_code = 'DIST_COA'
+LIMIT 1
+ON DUPLICATE KEY UPDATE accounting_method=VALUES(accounting_method), ar_ap_enabled=VALUES(ar_ap_enabled);
+
+-- Insert sample header assignments
+INSERT INTO ledger_header_assignments (header_name, ledger_id, module_type, validation_rules, is_active, created_by)
+SELECT 'AR Invoice Headers', lc.id, 'AR', '{"require_account": true, "require_approval": true}', TRUE, 1
+FROM ledger_configurations lc WHERE lc.ledger_name = 'Primary Distribution Ledger'
+UNION ALL
+SELECT 'AP Invoice Headers', lc.id, 'AP', '{"require_account": true, "require_approval": true}', TRUE, 1
+FROM ledger_configurations lc WHERE lc.ledger_name = 'Primary Distribution Ledger'
+UNION ALL
+SELECT 'PO Headers', lc.id, 'PO', '{"require_distribution": true}', TRUE, 1
+FROM ledger_configurations lc WHERE lc.ledger_name = 'Primary Distribution Ledger'
+ON DUPLICATE KEY UPDATE validation_rules=VALUES(validation_rules);

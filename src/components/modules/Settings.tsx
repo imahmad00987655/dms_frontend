@@ -34,6 +34,7 @@ import { useToast } from "@/hooks/use-toast";
 import TaxTypesForm from "@/components/forms/TaxTypesForm";
 import TaxRegimeForm from "@/components/forms/TaxRegimeForm";
 import TaxRatesForm from "@/components/forms/TaxRatesForm";
+import CompanySetup from "./CompanySetup";
 
 const Settings = () => {
   const { toast } = useToast();
@@ -103,7 +104,7 @@ const Settings = () => {
 
         {/* Settings Tabs */}
         <Tabs defaultValue="profile" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-6 bg-white/70 backdrop-blur-sm">
+          <TabsList className="grid w-full grid-cols-2 md:grid-cols-7 bg-white/70 backdrop-blur-sm">
             <TabsTrigger value="profile" className="flex items-center gap-2">
               <User className="w-4 h-4" />
               <span className="hidden sm:inline">Profile</span>
@@ -119,6 +120,10 @@ const Settings = () => {
             <TabsTrigger value="system" className="flex items-center gap-2">
               <Database className="w-4 h-4" />
               <span className="hidden sm:inline">System</span>
+            </TabsTrigger>
+            <TabsTrigger value="company-setup" className="flex items-center gap-2">
+              <Building className="w-4 h-4" />
+              <span className="hidden sm:inline">Company Setup</span>
             </TabsTrigger>
             <TabsTrigger value="tax-setup" className="flex items-center gap-2">
               <Receipt className="w-4 h-4" />
@@ -524,6 +529,11 @@ const Settings = () => {
                 </Tabs>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Company Setup */}
+          <TabsContent value="company-setup" className="space-y-6">
+            <CompanySetup />
           </TabsContent>
 
           {/* Users & Privileges Settings */}

@@ -104,7 +104,7 @@ router.post('/', async (req, res) => {
                 credit_limit || 0, hold_flag || false, status || 'ACTIVE', 1
             ]);
 
-            // Create default payment site if no sites provided
+            // Create default invoicing site if no sites provided
             if (!sites || sites.length === 0) {
                 const siteId = await APSequenceManager.getNextSupplierSiteId();
                 await pool.execute(`
@@ -112,8 +112,8 @@ router.post('/', async (req, res) => {
                         site_id, supplier_id, site_name, site_type, is_primary, status
                     ) VALUES (?, ?, ?, ?, ?, ?)
                 `, [
-                    siteId, supplierId, 
-                    `${supplier_name} - Payment Site`, 'PAYMENT', true, 'ACTIVE'
+                    siteId, supplierId,
+                    `${supplier_name} - Invoicing Site`, 'INVOICING', true, 'ACTIVE'
                 ]);
             } else {
                 // Insert provided sites
@@ -129,7 +129,10 @@ router.post('/', async (req, res) => {
                             is_primary, status
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     `, [
-                        siteId, supplierId, site.site_name, site.site_type || 'PAYMENT',
+                        siteId, supplierId, site.site_name,
+                        (site.site_type && site.site_type.toUpperCase() === 'BILL_TO') ? 'INVOICING' :
+                        (site.site_type && site.site_type.toUpperCase() === 'SHIP_TO') ? 'PURCHASING' :
+                        (site.site_type && ['INVOICING','PURCHASING','BOTH'].includes(site.site_type.toUpperCase())) ? site.site_type.toUpperCase() : 'INVOICING',
                         site.address_line1 || null, site.address_line2 || null,
                         site.city || null, site.state || null, site.postal_code || null,
                         site.country || null, site.phone || null, site.email || null,

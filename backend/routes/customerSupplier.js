@@ -945,6 +945,17 @@ router.put('/suppliers/sites/:siteId', async (req, res) => {
       site_name, site_type, address_line1, address_line2, city, state,
       postal_code, country, phone, email, contact_person, is_primary, status
     } = req.body;
+
+    // Normalize legacy/alias values to current ENUM values to avoid truncation
+    const normalizedSiteType = (() => {
+      if (!site_type) return null;
+      const upper = String(site_type).toUpperCase();
+      if (upper === 'BILL_TO') return 'INVOICING';
+      if (upper === 'SHIP_TO') return 'PURCHASING';
+      if (upper === 'PAYMENT') return 'INVOICING';
+      if (['INVOICING', 'PURCHASING', 'BOTH'].includes(upper)) return upper;
+      return null; // let DB reject if truly invalid
+    })();
     
     // Get supplier_id for this site
     const [siteResult] = await connection.execute(
@@ -974,7 +985,7 @@ router.put('/suppliers/sites/:siteId', async (req, res) => {
           city = ?, state = ?, postal_code = ?, country = ?, phone = ?, email = ?,
           contact_person = ?, is_primary = ?, status = ?
       WHERE site_id = ?
-    `, [site_name, site_type, address_line1, address_line2, city, state,
+    `, [site_name, normalizedSiteType ?? site_type, address_line1, address_line2, city, state,
         postal_code, country, phone, email, contact_person, is_primary, status,
         req.params.siteId]);
     

@@ -27,7 +27,7 @@ interface APSupplierSite {
   site_id: number;
   supplier_id: number;
   site_name: string;
-  site_type: 'BILL_TO' | 'SHIP_TO' | 'BOTH';
+  site_type: 'INVOICING' | 'PURCHASING' | 'BOTH';
   address_line1?: string;
   city?: string;
   state?: string;
@@ -262,7 +262,7 @@ export const APInvoiceForm = ({ onClose, onSuccess, suppliers }: APInvoiceFormPr
                     <SelectValue placeholder="Select billing site" />
                   </SelectTrigger>
                   <SelectContent>
-                    {supplierSites.filter(site => site.site_type === 'BILL_TO' || site.site_type === 'BOTH').map(site => (
+                    {supplierSites.filter(site => site.site_type === 'INVOICING' || site.site_type === 'BOTH').map(site => (
                       <SelectItem key={site.site_id} value={site.site_id.toString()}>
                         {site.site_name} {site.is_primary && '(Primary)'}
                       </SelectItem>

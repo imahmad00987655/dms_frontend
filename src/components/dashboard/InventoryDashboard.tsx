@@ -12,6 +12,7 @@ export interface InventoryItem {
   category?: string;
   location?: string;
   brand?: string;
+  supplier_id?: number;
   barcode?: string;
   item_purchase_rate?: number;
   item_sell_price?: number;

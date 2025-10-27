@@ -1571,6 +1571,8 @@ router.post('/purchase-orders', authenticateToken, async (req, res) => {
         tax_amount: Math.round((parseFloat(line.tax_amount) || 0) * 100) / 100,
         gst_rate: Math.round((parseFloat(line.gst_rate) || 0) * 100) / 100,
         gst_amount: Math.round((parseFloat(line.gst_amount) || 0) * 100) / 100,
+        quantity_received: Math.round((parseFloat(line.quantity_received) || 0) * 100) / 100,
+        quantity_remaining: Math.round((parseFloat(line.quantity_remaining) || 0) * 100) / 100,
         need_by_date: line.need_by_date || null,
         promised_date: line.promised_date || null,
         notes: line.notes || ''
@@ -1595,6 +1597,8 @@ router.post('/purchase-orders', authenticateToken, async (req, res) => {
         sanitizedLine.tax_amount, 
         sanitizedLine.gst_rate, 
         sanitizedLine.gst_amount, 
+        sanitizedLine.quantity_received,
+        sanitizedLine.quantity_remaining,
         sanitizedLine.need_by_date, 
         sanitizedLine.promised_date, 
         sanitizedLine.notes
@@ -1612,8 +1616,8 @@ router.post('/purchase-orders', authenticateToken, async (req, res) => {
         INSERT INTO po_lines (
           line_id, header_id, line_number, item_code, item_name, description,
           category, uom, quantity, unit_price, line_amount, tax_rate, tax_amount,
-          gst_rate, gst_amount, need_by_date, promised_date, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          gst_rate, gst_amount, quantity_received, quantity_remaining, need_by_date, promised_date, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, lineInsertValues);
     }
     
@@ -1805,6 +1809,8 @@ router.put('/purchase-orders/:id', authenticateToken, async (req, res) => {
         Math.round((parseFloat(line.tax_amount) || 0) * 100) / 100,
         Math.round((parseFloat(line.gst_rate) || 0) * 100) / 100,
         Math.round((parseFloat(line.gst_amount) || 0) * 100) / 100,
+        Math.round((parseFloat(line.quantity_received) || 0) * 100) / 100,
+        Math.round((parseFloat(line.quantity_remaining) || 0) * 100) / 100,
         line.need_by_date || null,
         line.promised_date || null,
         line.notes || null
@@ -1814,8 +1820,8 @@ router.put('/purchase-orders/:id', authenticateToken, async (req, res) => {
         INSERT INTO po_lines (
           line_id, header_id, line_number, item_code, item_name, description,
           category, uom, quantity, unit_price, line_amount, tax_rate, tax_amount,
-          gst_rate, gst_amount, need_by_date, promised_date, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          gst_rate, gst_amount, quantity_received, quantity_remaining, need_by_date, promised_date, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, lineParams);
     }
     

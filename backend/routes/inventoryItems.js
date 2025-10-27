@@ -6,7 +6,15 @@ const router = express.Router();
 // Get all inventory items
 router.get('/', async (req, res) => {
   try {
-    const [items] = await pool.execute('SELECT * FROM inventory_items ORDER BY created_at DESC');
+    const [items] = await pool.execute(`
+      SELECT 
+        ii.*,
+        s.supplier_name,
+        s.supplier_number
+      FROM inventory_items ii
+      LEFT JOIN ap_suppliers s ON ii.brand = s.supplier_id
+      ORDER BY ii.created_at DESC
+    `);
     res.json({ success: true, data: items });
   } catch (error) {
     console.error('Error fetching inventory items:', error);
@@ -17,7 +25,15 @@ router.get('/', async (req, res) => {
 // Get single inventory item by id
 router.get('/:id', async (req, res) => {
   try {
-    const [items] = await pool.execute('SELECT * FROM inventory_items WHERE id = ?', [req.params.id]);
+    const [items] = await pool.execute(`
+      SELECT 
+        ii.*,
+        s.supplier_name,
+        s.supplier_number
+      FROM inventory_items ii
+      LEFT JOIN ap_suppliers s ON ii.brand = s.supplier_id
+      WHERE ii.id = ?
+    `, [req.params.id]);
     if (items.length === 0) {
       return res.status(404).json({ success: false, message: 'Item not found' });
     }
@@ -47,7 +63,7 @@ router.post('/', async (req, res) => {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         item_code, item_name, description, category, location,
-        brand, barcode, item_purchase_rate || 0, item_sell_price || 0, tax_status,
+        brand || null, barcode, item_purchase_rate || 0, item_sell_price || 0, tax_status,
         uom_type, box_quantity || 0, uom_type_detail || 0
       ]
     );
@@ -80,7 +96,7 @@ router.put('/:id', async (req, res) => {
        WHERE id = ?`,
       [
         item_code, item_name, description, category, location,
-        brand, barcode, item_purchase_rate || 0, item_sell_price || 0, tax_status,
+        brand || null, barcode, item_purchase_rate || 0, item_sell_price || 0, tax_status,
         uom_type, box_quantity || 0, uom_type_detail || 0, req.params.id
       ]
     );

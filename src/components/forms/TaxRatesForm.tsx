@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { CalendarIcon, Plus, Save, Edit, Trash2, Eye } from "lucide-react";
+import { CalendarIcon, Plus, Save, Edit, Eye } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
@@ -15,11 +15,39 @@ import { cn } from "@/lib/utils";
 import apiService from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
 
+// Helper function to format date without timezone issues
+const formatDateForDisplay = (dateString: string) => {
+  if (!dateString || dateString === 'null' || dateString === 'undefined') return "N/A";
+  
+  try {
+    // Handle different date formats
+    let date;
+    if (dateString.includes('T')) {
+      // Already has time component
+      date = new Date(dateString);
+    } else {
+      // Add time component to prevent timezone issues
+      date = new Date(dateString + 'T00:00:00');
+    }
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      return "Invalid Date";
+    }
+    
+    return format(date, 'dd-MM-yyyy');
+  } catch (error) {
+    console.error('Error formatting date:', error, 'Input:', dateString);
+    return "Invalid Date";
+  }
+};
+
 interface TaxRate {
   id: number;
   code: string;
   percentage: number;
-  taxType: string;
+  taxType: string; // tax_type_id as string
+  taxTypeName: string; // tax_type_name for display
   effectiveDate: string;
   endDate: string | null;
   recoverable: boolean;
@@ -45,7 +73,9 @@ interface TaxType {
 
 const TaxRatesForm = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [editingTaxRate, setEditingTaxRate] = useState<TaxRate | null>(null);
+  const [viewingTaxRate, setViewingTaxRate] = useState<TaxRate | null>(null);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
@@ -75,7 +105,8 @@ const TaxRatesForm = () => {
           id: rate.id,
           code: rate.rate_code,
           percentage: rate.tax_percentage,
-          taxType: rate.tax_type_name,
+          taxType: rate.tax_type_id.toString(), // Store tax_type_id as string for Select component
+          taxTypeName: rate.tax_type_name, // Keep tax type name for display
           effectiveDate: rate.effective_date,
           endDate: rate.end_date,
           recoverable: !!rate.is_recoverable,
@@ -119,34 +150,16 @@ const TaxRatesForm = () => {
     setIsDialogOpen(true);
   };
 
+  const handleView = (taxRate: TaxRate) => {
+    setViewingTaxRate(taxRate);
+    setIsViewDialogOpen(true);
+  };
+
   const handleAddNew = () => {
     setEditingTaxRate(null);
     setIsDialogOpen(true);
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this tax rate?')) {
-      return;
-    }
-
-    try {
-      const response = await apiService.deleteTaxRate(id);
-      if (response.success) {
-        toast({
-          title: "Success",
-          description: "Tax rate deleted successfully",
-        });
-        loadTaxRates();
-      }
-    } catch (error) {
-      console.error('Error deleting tax rate:', error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete tax rate",
-        variant: "destructive",
-      });
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -182,6 +195,61 @@ const TaxRatesForm = () => {
         </Dialog>
       </div>
 
+      {/* View Dialog */}
+      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Tax Rate Details</DialogTitle>
+          </DialogHeader>
+          {viewingTaxRate && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Code</Label>
+                  <p className="text-sm font-medium">{viewingTaxRate.code}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Percentage</Label>
+                  <p className="text-sm font-medium">{viewingTaxRate.percentage}%</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Tax Type</Label>
+                  <Badge variant="secondary">{viewingTaxRate.taxTypeName}</Badge>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Effective Date</Label>
+                  <p className="text-sm font-medium">{formatDateForDisplay(viewingTaxRate.effectiveDate)}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">End Date</Label>
+                  <p className="text-sm font-medium">{formatDateForDisplay(viewingTaxRate.endDate || "")}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Status</Label>
+                  <Badge variant={viewingTaxRate.status === 'Active' ? 'default' : 'secondary'}>
+                    {viewingTaxRate.status}
+                  </Badge>
+                </div>
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-muted-foreground">Flags</Label>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {viewingTaxRate.recoverable && (
+                    <Badge variant="secondary">Recoverable</Badge>
+                  )}
+                  {viewingTaxRate.inclusive && (
+                    <Badge variant="secondary">Inclusive</Badge>
+                  )}
+                  {viewingTaxRate.selfAssessable && (
+                    <Badge variant="secondary">Self Assessable</Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Data Table */}
       <Card>
         <CardHeader>
@@ -195,8 +263,6 @@ const TaxRatesForm = () => {
                   <th className="text-left py-2 px-2">Code</th>
                   <th className="text-left py-2 px-2">Percentage</th>
                   <th className="text-left py-2 px-2">Tax Type</th>
-                  <th className="text-left py-2 px-2">Effective Date</th>
-                  <th className="text-left py-2 px-2">End Date</th>
                   <th className="text-left py-2 px-2">Flags</th>
                   <th className="text-left py-2 px-2">Status</th>
                   <th className="text-left py-2 px-2">Actions</th>
@@ -205,7 +271,7 @@ const TaxRatesForm = () => {
               <tbody>
                 {taxRates.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-8 px-4 text-center text-gray-500">
+                    <td colSpan={6} className="py-8 px-4 text-center text-gray-500">
                       <div className="flex flex-col items-center gap-2">
                         <div className="text-4xl">💰</div>
                         <p>No tax rates found</p>
@@ -219,10 +285,8 @@ const TaxRatesForm = () => {
                       <td className="py-3 px-2 font-medium">{rate.code}</td>
                       <td className="py-3 px-2">{rate.percentage}%</td>
                       <td className="py-3 px-2">
-                        <Badge variant="secondary">{rate.taxType}</Badge>
+                        <Badge variant="secondary">{rate.taxTypeName}</Badge>
                       </td>
-                      <td className="py-3 px-2">{rate.effectiveDate}</td>
-                      <td className="py-3 px-2">{rate.endDate || "N/A"}</td>
                       <td className="py-3 px-2">
                         <div className="flex flex-wrap gap-1">
                           {rate.recoverable && (
@@ -243,14 +307,11 @@ const TaxRatesForm = () => {
                       </td>
                       <td className="py-3 px-2">
                         <div className="flex gap-1">
-                          <Button variant="ghost" size="sm">
+                          <Button variant="ghost" size="sm" onClick={() => handleView(rate)}>
                             <Eye className="h-4 w-4" />
                           </Button>
                           <Button variant="ghost" size="sm" onClick={() => handleEdit(rate)}>
                             <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => handleDelete(rate.id)}>
-                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </td>
@@ -282,6 +343,22 @@ const TaxRateFormModal = ({ taxRate, taxTypes, onClose, onSave }: { taxRate: Tax
     selfAssessable: taxRate?.selfAssessable || false,
   });
 
+  // Initialize date fields when editing
+  useEffect(() => {
+    if (taxRate) {
+      if (taxRate.effectiveDate) {
+        setEffectiveDate(new Date(taxRate.effectiveDate));
+      }
+      if (taxRate.endDate) {
+        setEndDate(new Date(taxRate.endDate));
+      }
+    } else {
+      // Reset dates when creating new tax rate
+      setEffectiveDate(undefined);
+      setEndDate(undefined);
+    }
+  }, [taxRate]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -290,7 +367,7 @@ const TaxRateFormModal = ({ taxRate, taxTypes, onClose, onSave }: { taxRate: Tax
       const submitData = {
         rate_code: formData.code,
         tax_percentage: parseFloat(formData.percentage.toString()),
-        tax_type_id: parseInt(formData.taxType),
+        tax_type_id: parseInt(formData.taxType), // Convert string back to number
         effective_date: effectiveDate ? format(effectiveDate, 'yyyy-MM-dd') : '',
         end_date: endDate ? format(endDate, 'yyyy-MM-dd') : null,
         is_recoverable: formData.recoverable,

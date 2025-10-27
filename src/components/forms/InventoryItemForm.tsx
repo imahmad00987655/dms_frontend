@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,13 @@ import { Package, Save } from "lucide-react";
 import apiService from '@/services/api';
 import type { InventoryItem } from "@/components/dashboard/InventoryDashboard";
 
+interface Supplier {
+  supplier_id: number;
+  supplier_name: string;
+  supplier_number: string;
+  supplier_type: string;
+}
+
 export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, onSave?: (item: InventoryItem) => void }) => {
   const [itemData, setItemData] = useState<InventoryItem>({
     item_code: "",
@@ -24,6 +31,7 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
     category: "",
     location: "",
     brand: "",
+    supplier_id: undefined,
     barcode: "",
     item_purchase_rate: 0,
     item_sell_price: 0,
@@ -32,6 +40,8 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
     box_quantity: 0,
     uom_type_detail: 0
   });
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [loadingSuppliers, setLoadingSuppliers] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -59,13 +69,40 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
     "Exempt"
   ];
 
+  // Fetch suppliers on component mount
+  useEffect(() => {
+    const fetchSuppliers = async () => {
+      setLoadingSuppliers(true);
+      try {
+        const suppliersData = await apiService.getSuppliers();
+        // Filter suppliers to only show those with type "Vendor"
+        const vendorSuppliers = suppliersData.filter(supplier => 
+          supplier.supplier_type && supplier.supplier_type.toLowerCase() === 'vendor'
+        );
+        setSuppliers(vendorSuppliers);
+      } catch (error) {
+        console.error('Error fetching suppliers:', error);
+        setError('Failed to load suppliers');
+      } finally {
+        setLoadingSuppliers(false);
+      }
+    };
+
+    fetchSuppliers();
+  }, []);
+
   const handleSave = async () => {
     setError(null);
     setSuccess(null);
     setSaving(true);
+    
+    // Prepare the item data, sending supplier_id as brand
     const newItem: InventoryItem = {
       ...itemData,
+      brand: itemData.supplier_id?.toString() || '', // Store supplier_id as brand
+      supplier_id: undefined // Remove supplier_id from the payload
     };
+    
     try {
       await apiService.createInventoryItem(newItem);
       setSuccess("Item saved successfully!");
@@ -99,13 +136,32 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
             />
           </div>
           <div>
-            <Label htmlFor="brand">Brand (Company Name)</Label>
-            <Input
-              id="brand"
-              placeholder="Enter brand/company name"
-              value={itemData.brand}
-              onChange={(e) => setItemData({...itemData, brand: e.target.value})}
-            />
+            <Label htmlFor="supplier">Brand (Company Name)</Label>
+            <Select
+              value={itemData.supplier_id?.toString() || ""}
+              onValueChange={(value) => setItemData({...itemData, supplier_id: value ? parseInt(value) : undefined})}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select Brand" />
+              </SelectTrigger>
+              <SelectContent>
+                {loadingSuppliers ? (
+                  <SelectItem value="loading" disabled>
+                    Loading suppliers...
+                  </SelectItem>
+                ) : suppliers.length > 0 ? (
+                  suppliers.map(supplier => (
+                    <SelectItem key={supplier.supplier_id} value={supplier.supplier_id.toString()}>
+                      {supplier.supplier_name}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="no-suppliers" disabled>
+                    No Brands available
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

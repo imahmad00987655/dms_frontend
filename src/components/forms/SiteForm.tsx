@@ -10,7 +10,7 @@ interface PartySite {
   site_id: number;
   party_id: number;
   site_name: string;
-  site_type: 'BILL_TO' | 'SHIP_TO' | 'BOTH';
+  site_type: 'INVOICING' | 'PURCHASING' | 'BOTH';
   address_line1?: string;
   address_line2?: string;
   address_line3?: string;
@@ -36,7 +36,7 @@ interface SupplierSite {
   site_id: number;
   supplier_id: number;
   site_name: string;
-  site_type: 'BILL_TO' | 'SHIP_TO' | 'BOTH';
+  site_type: 'INVOICING' | 'PURCHASING' | 'BOTH';
   address_line1?: string;
   address_line2?: string;
   city?: string;
@@ -189,7 +189,7 @@ export const SiteForm: React.FC<SiteFormProps> = ({ partyId, customerId, supplie
           
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700">Site Type</label>
-            <Select value={formData.site_type} onValueChange={(value: 'BILL_TO' | 'SHIP_TO' | 'BOTH') => setFormData({ ...formData, site_type: value })}>
+            <Select value={formData.site_type} onValueChange={(value: 'INVOICING' | 'PURCHASING' | 'BOTH') => setFormData({ ...formData, site_type: value })}>
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -197,22 +197,22 @@ export const SiteForm: React.FC<SiteFormProps> = ({ partyId, customerId, supplie
                 {customerId ? (
                   // Customer sites only support these types
                   <>
-                    <SelectItem value="BILL_TO">Bill To</SelectItem>
-                    <SelectItem value="SHIP_TO">Ship To</SelectItem>
+                    <SelectItem value="INVOICING">Invoicing</SelectItem>
+                    <SelectItem value="PURCHASING">Purchasing</SelectItem>
                     <SelectItem value="BOTH">Both</SelectItem>
                   </>
                 ) : supplierId ? (
                   // Supplier sites support these types
                   <>
-                    <SelectItem value="BILL_TO">Bill To</SelectItem>
-                    <SelectItem value="SHIP_TO">Ship To</SelectItem>
+                    <SelectItem value="PURCHASING">Purchasing</SelectItem>
+                    <SelectItem value="INVOICING">Invoicing</SelectItem>
                     <SelectItem value="BOTH">Both</SelectItem>
                   </>
                 ) : (
                   // Party sites support all types
                   <>
-                    <SelectItem value="BILL_TO">Bill To</SelectItem>
-                    <SelectItem value="SHIP_TO">Ship To</SelectItem>
+                    <SelectItem value="INVOICING">Invoicing</SelectItem>
+                    <SelectItem value="PURCHASING">Purchasing</SelectItem>
                     <SelectItem value="BOTH">Both</SelectItem>
                   </>
                 )}

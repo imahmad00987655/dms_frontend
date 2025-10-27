@@ -33,7 +33,7 @@ interface SupplierSite {
   site_id: number;
   supplier_id: number;
   site_name: string;
-  site_type: 'BILL_TO' | 'SHIP_TO' | 'BOTH';
+  site_type: 'INVOICING' | 'PURCHASING' | 'BOTH';
   address_line1?: string;
   city?: string;
   state?: string;
@@ -122,7 +122,7 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     currency_code: 'USD',
     exchange_rate: '1.0',
     total_amount: '0',
-    amount_remaining: '0',
+    amount_remaining: '0', // Always start with 0 for new purchase orders
     description: '',
     notes: '',
     status: 'DRAFT',
@@ -460,7 +460,9 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     setFormData(prev => ({
       ...prev,
       total_amount: total.toString(),
-      amount_remaining: remaining.toString()
+      // For new purchase orders, amount_remaining should be 0 initially
+      // For existing purchase orders, calculate based on received quantities
+      amount_remaining: purchaseOrder ? remaining.toString() : '0'
     }));
   };
 

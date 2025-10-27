@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Save, Edit, Trash2, Eye } from "lucide-react";
+import { Plus, Save, Edit, Eye } from "lucide-react";
 import apiService from "@/services/api";
 import { useToast } from "@/hooks/use-toast";
 
@@ -15,7 +15,8 @@ interface TaxType {
   id: number;
   code: string;
   name: string;
-  regime: string;
+  regime: string; // regime_id as string
+  regimeName: string; // regime_name for display
   operatingUnit: string;
   ledger: string;
   liabilityAccount: string;
@@ -39,7 +40,9 @@ interface TaxRegime {
 
 const TaxTypesForm = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [editingTaxType, setEditingTaxType] = useState<TaxType | null>(null);
+  const [viewingTaxType, setViewingTaxType] = useState<TaxType | null>(null);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
@@ -71,7 +74,8 @@ const TaxTypesForm = () => {
           id: taxType.id,
           code: taxType.tax_type_code,
           name: taxType.tax_type_name,
-          regime: taxType.regime_name,
+          regime: taxType.regime_id.toString(), // Store regime_id as string for Select component
+          regimeName: taxType.regime_name, // Keep regime name for display
           operatingUnit: taxType.operating_unit,
           ledger: taxType.ledger,
           liabilityAccount: taxType.liability_account,
@@ -117,34 +121,16 @@ const TaxTypesForm = () => {
     setIsDialogOpen(true);
   };
 
+  const handleView = (taxType: TaxType) => {
+    setViewingTaxType(taxType);
+    setIsViewDialogOpen(true);
+  };
+
   const handleAddNew = () => {
     setEditingTaxType(null);
     setIsDialogOpen(true);
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this tax type?')) {
-      return;
-    }
-
-    try {
-      const response = await apiService.deleteTaxType(id);
-      if (response.success) {
-        toast({
-          title: "Success",
-          description: "Tax type deleted successfully",
-        });
-        loadTaxTypes();
-      }
-    } catch (error) {
-      console.error('Error deleting tax type:', error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete tax type",
-        variant: "destructive",
-      });
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -179,6 +165,65 @@ const TaxTypesForm = () => {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* View Dialog */}
+      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Tax Type Details</DialogTitle>
+          </DialogHeader>
+          {viewingTaxType && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Code</Label>
+                  <p className="text-sm font-medium">{viewingTaxType.code}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Name</Label>
+                  <p className="text-sm font-medium">{viewingTaxType.name}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Regime</Label>
+                  <p className="text-sm font-medium">{viewingTaxType.regimeName}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Operating Unit</Label>
+                  <p className="text-sm font-medium">{viewingTaxType.operatingUnit}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Liability Account</Label>
+                  <p className="text-sm font-medium">{viewingTaxType.liabilityAccount}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Rounding Account</Label>
+                  <p className="text-sm font-medium">{viewingTaxType.roundingAccount}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Status</Label>
+                  <Badge variant={viewingTaxType.status === 'Active' ? 'default' : 'secondary'}>
+                    {viewingTaxType.status}
+                  </Badge>
+                </div>
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-muted-foreground">Flags</Label>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {viewingTaxType.withholdingTax && (
+                    <Badge variant="secondary">Withholding Tax</Badge>
+                  )}
+                  {viewingTaxType.selfAssessed && (
+                    <Badge variant="secondary">Self Assessed</Badge>
+                  )}
+                  {viewingTaxType.recoverable && (
+                    <Badge variant="secondary">Recoverable</Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Data Table */}
       <Card>
@@ -216,7 +261,7 @@ const TaxTypesForm = () => {
                     <tr key={taxType.id} className="border-b">
                       <td className="py-3 px-2 font-medium">{taxType.code}</td>
                       <td className="py-3 px-2">{taxType.name}</td>
-                      <td className="py-3 px-2">{taxType.regime}</td>
+                      <td className="py-3 px-2">{taxType.regimeName}</td>
                       <td className="py-3 px-2">{taxType.operatingUnit}</td>
                       <td className="py-3 px-2">{taxType.liabilityAccount}</td>
                       <td className="py-3 px-2">
@@ -239,14 +284,11 @@ const TaxTypesForm = () => {
                       </td>
                       <td className="py-3 px-2">
                         <div className="flex gap-1">
-                          <Button variant="ghost" size="sm">
+                          <Button variant="ghost" size="sm" onClick={() => handleView(taxType)}>
                             <Eye className="h-4 w-4" />
                           </Button>
                           <Button variant="ghost" size="sm" onClick={() => handleEdit(taxType)}>
                             <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => handleDelete(taxType.id)}>
-                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </td>
@@ -288,7 +330,7 @@ const TaxTypeForm = ({ taxType, taxRegimes, onClose, onSave }: { taxType: TaxTyp
       const submitData = {
         tax_type_code: formData.code,
         tax_type_name: formData.name,
-        regime_id: formData.regime,
+        regime_id: parseInt(formData.regime), // Convert string back to number
         operating_unit: formData.operatingUnit,
         ledger: formData.ledger,
         liability_account: formData.liabilityAccount,

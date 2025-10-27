@@ -22,6 +22,9 @@ import partiesRoutes from './routes/parties.js';
 import taxRegimesRoutes from './routes/taxRegimes.js';
 import taxTypesRoutes from './routes/taxTypes.js';
 import taxRatesRoutes from './routes/taxRates.js';
+import companiesRoutes from './routes/companies.js';
+import companyLocationsRoutes from './routes/companyLocations.js';
+import chartOfAccountsRoutes from './routes/chartOfAccounts.js';
 
 
 // Load environment variables
@@ -435,6 +438,13 @@ app.use('/api/parties', partiesRoutes);
 app.use('/api/tax/regimes', taxRegimesRoutes);
 app.use('/api/tax/types', taxTypesRoutes);
 app.use('/api/tax/rates', taxRatesRoutes);
+
+// Company Setup Routes
+app.use('/api/companies', companiesRoutes);
+app.use('/api/company-locations', companyLocationsRoutes);
+
+// Chart of Accounts Routes
+app.use('/api/chart-of-accounts', chartOfAccountsRoutes);
 
 
 // 404 handler
