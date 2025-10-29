@@ -6,6 +6,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { 
   Building2, 
   Plus, 
@@ -351,12 +359,14 @@ const CompanySetup = () => {
   const handleAddLocation = (company: Company) => {
     setSelectedCompanyForLocation(company);
     setEditingLocation(null);
+    setShowViewModal(false); // Close view modal so location form appears on top
     setShowLocationForm(true);
   };
 
   const handleEditLocation = (location: CompanyLocation) => {
     setEditingLocation(location);
     setSelectedCompanyForLocation(companies.find(c => c.id === location.company_id) || null);
+    setShowViewModal(false); // Close view modal so location form appears on top
     setShowLocationForm(true);
   };
 
@@ -407,13 +417,21 @@ const CompanySetup = () => {
   };
 
   const handleLocationFormSuccess = () => {
+    const companyId = selectedCompanyForLocation?.id;
     setShowLocationForm(false);
     setEditingLocation(null);
-    setSelectedCompanyForLocation(null);
-    // Refresh locations for the current company
-    if (selectedCompanyForLocation) {
-      fetchCompanyLocations(selectedCompanyForLocation.id);
+    
+    // If there was a viewing company, refresh locations and potentially reopen view modal
+    if (companyId) {
+      fetchCompanyLocations(companyId);
+      // Optionally reopen the view modal to show updated locations
+      if (viewingCompany && viewingCompany.id === companyId) {
+        // Refresh locations in the view modal
+        fetchCompanyLocations(companyId);
+      }
     }
+    
+    setSelectedCompanyForLocation(null);
   };
 
   const filteredCompanies = companies.filter(company => {
@@ -674,168 +692,179 @@ const CompanySetup = () => {
         </Tabs>
 
         {/* Create/Edit Company Modal */}
-        {showCreateModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <Card className="w-full max-w-2xl bg-white shadow-2xl">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Building2 className="w-5 h-5 text-blue-600" />
-                  {editingCompany ? 'Edit Company' : 'Create New Company'}
-                </CardTitle>
-                <CardDescription>
-                  {editingCompany ? 'Update company information' : 'Enter the distributor company information'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Company Name *</Label>
-                    <Input
-                      id="name"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="Enter company name"
-                      disabled={loading}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="legal_name">Legal Name *</Label>
-                    <Input
-                      id="legal_name"
-                      value={formData.legal_name}
-                      onChange={(e) => setFormData({ ...formData, legal_name: e.target.value })}
-                      placeholder="Enter legal entity name"
-                      disabled={loading}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="registration_number">Registration Number *</Label>
-                    <Input
-                      id="registration_number"
-                      value={formData.registration_number}
-                      onChange={(e) => setFormData({ ...formData, registration_number: e.target.value })}
-                      placeholder="Enter registration number"
-                      disabled={loading}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="country">Country</Label>
-                    <Select 
-                      value={formData.country} 
-                      onValueChange={(value) => setFormData({ ...formData, country: value })}
-                      disabled={loading}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select country" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="United States">United States</SelectItem>
-                        <SelectItem value="United Kingdom">United Kingdom</SelectItem>
-                        <SelectItem value="Canada">Canada</SelectItem>
-                        <SelectItem value="Australia">Australia</SelectItem>
-                        <SelectItem value="Germany">Germany</SelectItem>
-                        <SelectItem value="France">France</SelectItem>
-                        <SelectItem value="Japan">Japan</SelectItem>
-                        <SelectItem value="China">China</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="currency">Currency</Label>
-                    <Select 
-                      value={formData.currency} 
-                      onValueChange={(value) => setFormData({ ...formData, currency: value })}
-                      disabled={loading}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select currency" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="USD">USD - US Dollar</SelectItem>
-                        <SelectItem value="GBP">GBP - British Pound</SelectItem>
-                        <SelectItem value="CAD">CAD - Canadian Dollar</SelectItem>
-                        <SelectItem value="AUD">AUD - Australian Dollar</SelectItem>
-                        <SelectItem value="EUR">EUR - Euro</SelectItem>
-                        <SelectItem value="JPY">JPY - Japanese Yen</SelectItem>
-                        <SelectItem value="CNY">CNY - Chinese Yuan</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="fiscal_year_start">Fiscal Year Start</Label>
-                    <Input
-                      id="fiscal_year_start"
-                      type="date"
-                      value={formData.fiscal_year_start}
-                      onChange={(e) => setFormData({ ...formData, fiscal_year_start: e.target.value })}
-                      disabled={loading}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="status">Status</Label>
-                    <Select 
-                      value={formData.status} 
-                      onValueChange={(value) => setFormData({ ...formData, status: value as 'Active' | 'Inactive' | 'Suspended' })}
-                      disabled={loading}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Active">Active</SelectItem>
-                        <SelectItem value="Inactive">Inactive</SelectItem>
-                        <SelectItem value="Suspended">Suspended</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+        <Dialog open={showCreateModal} onOpenChange={(open) => {
+          if (!open) {
+            setShowCreateModal(false);
+            setEditingCompany(null);
+            resetForm();
+          } else {
+            setShowCreateModal(true);
+          }
+        }}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-blue-600" />
+                {editingCompany ? 'Edit Company' : 'Create New Company'}
+              </DialogTitle>
+              <DialogDescription>
+                {editingCompany ? 'Update company information' : 'Enter the distributor company information'}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-6 py-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Company Name *</Label>
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    placeholder="Enter company name"
+                    disabled={loading}
+                  />
                 </div>
-
-                <div className="flex justify-end gap-3">
-                  <Button 
-                    variant="outline" 
-                    onClick={() => {
-                      setShowCreateModal(false);
-                      setEditingCompany(null);
-                      resetForm();
-                    }}
+                <div className="space-y-2">
+                  <Label htmlFor="legal_name">Legal Name *</Label>
+                  <Input
+                    id="legal_name"
+                    value={formData.legal_name}
+                    onChange={(e) => setFormData({ ...formData, legal_name: e.target.value })}
+                    placeholder="Enter legal entity name"
+                    disabled={loading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="registration_number">Registration Number *</Label>
+                  <Input
+                    id="registration_number"
+                    value={formData.registration_number}
+                    onChange={(e) => setFormData({ ...formData, registration_number: e.target.value })}
+                    placeholder="Enter registration number"
+                    disabled={loading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="country">Country</Label>
+                  <Select 
+                    value={formData.country} 
+                    onValueChange={(value) => setFormData({ ...formData, country: value })}
                     disabled={loading}
                   >
-                    Cancel
-                  </Button>
-                  <Button 
-                    onClick={editingCompany ? handleUpdateCompany : handleCreateCompany}
-                    className="bg-green-600 hover:bg-green-700"
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select country" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="United States">United States</SelectItem>
+                      <SelectItem value="United Kingdom">United Kingdom</SelectItem>
+                      <SelectItem value="Canada">Canada</SelectItem>
+                      <SelectItem value="Australia">Australia</SelectItem>
+                      <SelectItem value="Germany">Germany</SelectItem>
+                      <SelectItem value="France">France</SelectItem>
+                      <SelectItem value="Japan">Japan</SelectItem>
+                      <SelectItem value="China">China</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="currency">Currency</Label>
+                  <Select 
+                    value={formData.currency} 
+                    onValueChange={(value) => setFormData({ ...formData, currency: value })}
                     disabled={loading}
                   >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        {editingCompany ? 'Updating...' : 'Creating...'}
-                      </>
-                    ) : (
-                      <>{editingCompany ? 'Update Company' : 'Create Company'}</>
-                    )}
-                  </Button>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select currency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="USD">USD - US Dollar</SelectItem>
+                      <SelectItem value="GBP">GBP - British Pound</SelectItem>
+                      <SelectItem value="CAD">CAD - Canadian Dollar</SelectItem>
+                      <SelectItem value="AUD">AUD - Australian Dollar</SelectItem>
+                      <SelectItem value="EUR">EUR - Euro</SelectItem>
+                      <SelectItem value="JPY">JPY - Japanese Yen</SelectItem>
+                      <SelectItem value="CNY">CNY - Chinese Yuan</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+                <div className="space-y-2">
+                  <Label htmlFor="fiscal_year_start">Fiscal Year Start</Label>
+                  <Input
+                    id="fiscal_year_start"
+                    type="date"
+                    value={formData.fiscal_year_start}
+                    onChange={(e) => setFormData({ ...formData, fiscal_year_start: e.target.value })}
+                    disabled={loading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="status">Status</Label>
+                  <Select 
+                    value={formData.status} 
+                    onValueChange={(value) => setFormData({ ...formData, status: value as 'Active' | 'Inactive' | 'Suspended' })}
+                    disabled={loading}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Active">Active</SelectItem>
+                      <SelectItem value="Inactive">Inactive</SelectItem>
+                      <SelectItem value="Suspended">Suspended</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setEditingCompany(null);
+                  resetForm();
+                }}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={editingCompany ? handleUpdateCompany : handleCreateCompany}
+                className="bg-green-600 hover:bg-green-700"
+                disabled={loading}
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    {editingCompany ? 'Updating...' : 'Creating...'}
+                  </>
+                ) : (
+                  <>{editingCompany ? 'Update Company' : 'Create Company'}</>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* View Company Modal */}
-        {showViewModal && viewingCompany && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <Card className="w-full max-w-4xl bg-white shadow-2xl max-h-[90vh] flex flex-col">
-              <CardHeader className="flex-shrink-0">
-                <CardTitle className="flex items-center gap-2">
-                  <Building2 className="w-5 h-5 text-green-600" />
-                  Company Details
-                </CardTitle>
-                <CardDescription>
-                  View company information
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6 flex-1 overflow-y-auto">
+        <Dialog open={showViewModal} onOpenChange={(open) => {
+          if (!open) {
+            setShowViewModal(false);
+          } else {
+            setShowViewModal(true);
+          }
+        }}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-green-600" />
+                Company Details
+              </DialogTitle>
+              <DialogDescription>
+                View company information
+              </DialogDescription>
+            </DialogHeader>
+            {viewingCompany && (
+              <div className="space-y-6 py-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Company Information */}
                   <div className="space-y-4">
@@ -1016,50 +1045,54 @@ const CompanySetup = () => {
                     </div>
                   )}
                 </div>
-
-                {/* Action Buttons */}
-                <div className="flex justify-center pt-4 border-t">
-                  <Button
-                    onClick={() => setShowViewModal(false)}
-                    disabled={loading}
-                    className="bg-green-600 hover:bg-green-700 text-white px-8"
-                  >
-                    OK
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                onClick={() => setShowViewModal(false)}
+                disabled={loading}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Location Form Modal */}
-        {showLocationForm && selectedCompanyForLocation && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <Card className="w-full max-w-4xl bg-white shadow-2xl max-h-[90vh] flex flex-col">
-              <CardHeader className="flex-shrink-0">
-                <CardTitle className="flex items-center gap-2">
-                  <MapPin className="w-5 h-5 text-green-600" />
-                  {editingLocation ? 'Edit Location' : 'Add New Location'}
-                </CardTitle>
-                <CardDescription>
-                  {editingLocation ? 'Update location information' : `Add a new location for ${selectedCompanyForLocation.name}`}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex-1 overflow-y-auto">
-                <LocationForm
-                  companyId={selectedCompanyForLocation.id}
-                  onClose={() => {
-                    setShowLocationForm(false);
-                    setEditingLocation(null);
-                    setSelectedCompanyForLocation(null);
-                  }}
-                  onSuccess={handleLocationFormSuccess}
-                  locationToEdit={editingLocation}
-                />
-              </CardContent>
-            </Card>
-          </div>
-        )}
+        <Dialog open={showLocationForm} onOpenChange={(open) => {
+          if (!open) {
+            setShowLocationForm(false);
+            setEditingLocation(null);
+            setSelectedCompanyForLocation(null);
+          } else {
+            setShowLocationForm(true);
+          }
+        }}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <MapPin className="w-5 h-5 text-green-600" />
+                {editingLocation ? 'Edit Location' : 'Add New Location'}
+              </DialogTitle>
+              <DialogDescription>
+                {editingLocation ? 'Update location information' : selectedCompanyForLocation ? `Add a new location for ${selectedCompanyForLocation.name}` : 'Add a new location'}
+              </DialogDescription>
+            </DialogHeader>
+            {selectedCompanyForLocation && (
+              <LocationForm
+                companyId={selectedCompanyForLocation.id}
+                onClose={() => {
+                  setShowLocationForm(false);
+                  setEditingLocation(null);
+                  setSelectedCompanyForLocation(null);
+                }}
+                onSuccess={handleLocationFormSuccess}
+                locationToEdit={editingLocation}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

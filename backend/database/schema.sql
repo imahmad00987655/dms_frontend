@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(100) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     company VARCHAR(100),
+    phone VARCHAR(20),
+    profile_image MEDIUMTEXT,
     role ENUM('admin', 'user', 'manager') DEFAULT 'user',
     is_active BOOLEAN DEFAULT TRUE,
     is_verified BOOLEAN DEFAULT FALSE,
@@ -88,48 +90,27 @@ ON DUPLICATE KEY UPDATE id=id;
 -- Chart of Accounts Segments Structure
 CREATE TABLE IF NOT EXISTS coa_segments (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    segment_name VARCHAR(100) NOT NULL,
-    segment_length INT NOT NULL,
-    value_set_name VARCHAR(100),
-    display_order INT DEFAULT 0,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_segment_name (segment_name),
-    INDEX idx_is_active (is_active),
-    INDEX idx_display_order (display_order)
-);
-
--- Value Sets (Independent or Table-based)
-CREATE TABLE IF NOT EXISTS coa_value_sets (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    value_set_name VARCHAR(100) UNIQUE NOT NULL,
-    value_set_type ENUM('INDEPENDENT', 'TABLE') NOT NULL DEFAULT 'INDEPENDENT',
+    coa_name VARCHAR(255) NOT NULL,
     description TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
+    segment_1_name VARCHAR(100),
+    segment_1_value VARCHAR(50) DEFAULT '00000',
+    segment_2_name VARCHAR(100),
+    segment_2_value VARCHAR(50) DEFAULT '00000',
+    segment_3_name VARCHAR(100),
+    segment_3_value VARCHAR(50) DEFAULT '00000',
+    segment_4_name VARCHAR(100),
+    segment_4_value VARCHAR(50) DEFAULT '00000',
+    segment_5_name VARCHAR(100),
+    segment_5_value VARCHAR(50) DEFAULT '00000',
+    segment_length INT DEFAULT 5,
+    status ENUM('ACTIVE', 'INACTIVE') DEFAULT 'ACTIVE',
+    created_by INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_value_set_name (value_set_name),
-    INDEX idx_value_set_type (value_set_type),
-    INDEX idx_is_active (is_active)
-);
-
--- Value Set Values (Actual codes and descriptions)
-CREATE TABLE IF NOT EXISTS coa_value_set_values (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    value_set_id INT NOT NULL,
-    value_code VARCHAR(50) NOT NULL,
-    value_description VARCHAR(255) NOT NULL,
-    display_order INT DEFAULT 0,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (value_set_id) REFERENCES coa_value_sets(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_value_set_code (value_set_id, value_code),
-    INDEX idx_value_set_id (value_set_id),
-    INDEX idx_value_code (value_code),
-    INDEX idx_display_order (display_order),
-    INDEX idx_is_active (is_active)
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_coa_name (coa_name),
+    INDEX idx_status (status),
+    INDEX idx_created_by (created_by)
 );
 
 -- CoA Instances (Chart of Account Definitions)
@@ -149,13 +130,12 @@ CREATE TABLE IF NOT EXISTS coa_instances (
     INDEX idx_created_by (created_by)
 );
 
--- CoA Segment Instances (Mapping segments to a CoA)
+-- CoA Segment Instances (Mapping segments to a CoA) - Deprecated, using coa_segments now
 CREATE TABLE IF NOT EXISTS coa_segment_instances (
     id INT AUTO_INCREMENT PRIMARY KEY,
     coa_instance_id INT NOT NULL,
     segment_name VARCHAR(100) NOT NULL,
     segment_length INT NOT NULL,
-    value_set_name VARCHAR(100),
     display_order INT DEFAULT 0,
     FOREIGN KEY (coa_instance_id) REFERENCES coa_instances(id) ON DELETE CASCADE,
     INDEX idx_coa_instance_id (coa_instance_id),
@@ -1671,98 +1651,10 @@ CREATE TABLE IF NOT EXISTS tax_settings (
 -- INSERT DEFAULT CHART OF ACCOUNTS DATA
 -- ============================================================================
 
--- Insert default CoA segments
-INSERT INTO coa_segments (segment_name, segment_length, value_set_name, display_order) VALUES
-('Company', 4, 'Company Values', 1),
-('Product', 5, NULL, 2),
-('Cost Center', 4, 'Cost Centers', 3),
-('Account', 6, NULL, 4),
-('Project', 4, 'Projects', 5)
-ON DUPLICATE KEY UPDATE segment_length=VALUES(segment_length), value_set_name=VALUES(value_set_name);
-
--- Insert default value sets
-INSERT INTO coa_value_sets (value_set_name, value_set_type, description) VALUES
-('Company Values', 'TABLE', 'Company segments for multi-company operations'),
-('Cost Centers', 'TABLE', 'Department and cost center segments'),
-('Projects', 'TABLE', 'Project segments for project-based accounting'),
-('AR Accounts', 'INDEPENDENT', 'Accounts Receivable accounts'),
-('AP Accounts', 'INDEPENDENT', 'Accounts Payable accounts'),
-('Inventory Types', 'INDEPENDENT', 'Inventory type classifications')
-ON DUPLICATE KEY UPDATE description=VALUES(description);
-
--- Insert value set values for Company
-INSERT INTO coa_value_set_values (value_set_id, value_code, value_description, display_order)
-SELECT vs.id, '001', 'AccuFlow Distribution', 1 FROM coa_value_sets vs WHERE vs.value_set_name = 'Company Values'
-UNION ALL
-SELECT vs.id, '002', 'AccuFlow Logistics', 2 FROM coa_value_sets vs WHERE vs.value_set_name = 'Company Values'
-UNION ALL
-SELECT vs.id, '003', 'AccuFlow Retail', 3 FROM coa_value_sets vs WHERE vs.value_set_name = 'Company Values'
-ON DUPLICATE KEY UPDATE value_description=VALUES(value_description);
-
--- Insert value set values for Cost Centers
-INSERT INTO coa_value_set_values (value_set_id, value_code, value_description, display_order)
-SELECT vs.id, '001', 'Administration', 1 FROM coa_value_sets vs WHERE vs.value_set_name = 'Cost Centers'
-UNION ALL
-SELECT vs.id, '002', 'Sales', 2 FROM coa_value_sets vs WHERE vs.value_set_name = 'Cost Centers'
-UNION ALL
-SELECT vs.id, '003', 'Marketing', 3 FROM coa_value_sets vs WHERE vs.value_set_name = 'Cost Centers'
-UNION ALL
-SELECT vs.id, '004', 'Operations', 4 FROM coa_value_sets vs WHERE vs.value_set_name = 'Cost Centers'
-ON DUPLICATE KEY UPDATE value_description=VALUES(value_description);
-
--- Insert value set values for Projects
-INSERT INTO coa_value_set_values (value_set_id, value_code, value_description, display_order)
-SELECT vs.id, '001', 'Project Alpha', 1 FROM coa_value_sets vs WHERE vs.value_set_name = 'Projects'
-UNION ALL
-SELECT vs.id, '002', 'Project Beta', 2 FROM coa_value_sets vs WHERE vs.value_set_name = 'Projects'
-UNION ALL
-SELECT vs.id, '003', 'Project Gamma', 3 FROM coa_value_sets vs WHERE vs.value_set_name = 'Projects'
-ON DUPLICATE KEY UPDATE value_description=VALUES(value_description);
-
--- Insert value set values for AR Accounts
-INSERT INTO coa_value_set_values (value_set_id, value_code, value_description, display_order)
-SELECT vs.id, 'AR-001', 'Customer Receivables', 1 FROM coa_value_sets vs WHERE vs.value_set_name = 'AR Accounts'
-UNION ALL
-SELECT vs.id, 'AR-002', 'Trade Receivables', 2 FROM coa_value_sets vs WHERE vs.value_set_name = 'AR Accounts'
-UNION ALL
-SELECT vs.id, 'AR-003', 'Other Receivables', 3 FROM coa_value_sets vs WHERE vs.value_set_name = 'AR Accounts'
-ON DUPLICATE KEY UPDATE value_description=VALUES(value_description);
-
--- Insert value set values for AP Accounts
-INSERT INTO coa_value_set_values (value_set_id, value_code, value_description, display_order)
-SELECT vs.id, 'AP-001', 'Trade Payables', 1 FROM coa_value_sets vs WHERE vs.value_set_name = 'AP Accounts'
-UNION ALL
-SELECT vs.id, 'AP-002', 'Accrued Expenses', 2 FROM coa_value_sets vs WHERE vs.value_set_name = 'AP Accounts'
-UNION ALL
-SELECT vs.id, 'AP-003', 'Other Payables', 3 FROM coa_value_sets vs WHERE vs.value_set_name = 'AP Accounts'
-ON DUPLICATE KEY UPDATE value_description=VALUES(value_description);
-
--- Insert value set values for Inventory Types
-INSERT INTO coa_value_set_values (value_set_id, value_code, value_description, display_order)
-SELECT vs.id, 'INV-001', 'Finished Goods', 1 FROM coa_value_sets vs WHERE vs.value_set_name = 'Inventory Types'
-UNION ALL
-SELECT vs.id, 'INV-002', 'Raw Materials', 2 FROM coa_value_sets vs WHERE vs.value_set_name = 'Inventory Types'
-UNION ALL
-SELECT vs.id, 'INV-003', 'Work in Process', 3 FROM coa_value_sets vs WHERE vs.value_set_name = 'Inventory Types'
-UNION ALL
-SELECT vs.id, 'INV-004', 'Supplies', 4 FROM coa_value_sets vs WHERE vs.value_set_name = 'Inventory Types'
-ON DUPLICATE KEY UPDATE value_description=VALUES(value_description);
-
--- Insert default CoA instance
-INSERT INTO coa_instances (coa_code, coa_name, description, status, created_by) VALUES
-('DIST_COA', 'Distribution CoA', 'Standard chart of accounts for distribution operations', 'ACTIVE', 1)
-ON DUPLICATE KEY UPDATE coa_name=VALUES(coa_name), description=VALUES(description);
-
--- Insert CoA segment instances
-INSERT INTO coa_segment_instances (coa_instance_id, segment_name, segment_length, value_set_name, display_order)
-SELECT ci.id, 'Company', 4, 'Company Values', 1 FROM coa_instances ci WHERE ci.coa_code = 'DIST_COA'
-UNION ALL
-SELECT ci.id, 'Product', 5, NULL, 2 FROM coa_instances ci WHERE ci.coa_code = 'DIST_COA'
-UNION ALL
-SELECT ci.id, 'Cost Center', 4, 'Cost Centers', 3 FROM coa_instances ci WHERE ci.coa_code = 'DIST_COA'
-UNION ALL
-SELECT ci.id, 'Account', 6, NULL, 4 FROM coa_instances ci WHERE ci.coa_code = 'DIST_COA'
-ON DUPLICATE KEY UPDATE segment_length=VALUES(segment_length), value_set_name=VALUES(value_set_name);
+-- Example: Insert a sample CoA with 5 segments
+-- INSERT INTO coa_segments (coa_name, description, segment_1_name, segment_1_value, segment_2_name, segment_2_value, segment_3_name, segment_3_value, segment_4_name, segment_4_value, segment_5_name, segment_5_value, segment_length, status, created_by) 
+-- VALUES ('Sample CoA', 'Sample Chart of Accounts', 'Company', '00001', 'Product', '00002', 'Cost Center', '00003', 'Account', '00004', 'Project', '00005', 5, 'ACTIVE', 1)
+-- ON DUPLICATE KEY UPDATE description=VALUES(description);
 
 -- Insert default ledger configuration
 INSERT INTO ledger_configurations (ledger_name, ledger_type, currency, coa_instance_id, accounting_method, ar_ap_enabled, status, created_by)

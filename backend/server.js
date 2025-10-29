@@ -25,7 +25,9 @@ import taxRatesRoutes from './routes/taxRates.js';
 import companiesRoutes from './routes/companies.js';
 import companyLocationsRoutes from './routes/companyLocations.js';
 import chartOfAccountsRoutes from './routes/chartOfAccounts.js';
-
+import profileRoutes from './routes/profile.js';
+import { fileURLToPath } from 'url';
+import path from 'path';
 
 // Load environment variables
 dotenv.config();
@@ -40,9 +42,11 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
+      imgSrc: ["'self'", "data:", "https:", "http://localhost:5000", "http://localhost:8080", "http://localhost:5173"],
     },
   },
+  crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin requests for resources
+  crossOriginEmbedderPolicy: false, // Disable to allow embedding resources from different origins
 }));
 
 // CORS configuration - UPDATED TO SUPPORT MULTIPLE PORTS
@@ -75,6 +79,23 @@ app.use(limiter);
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Serve uploaded files statically with CORS and CORP headers
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+app.use('/uploads', (req, res, next) => {
+  // Set CORS headers for static files
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  // Explicitly set Cross-Origin-Resource-Policy to allow cross-origin requests
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+  // Handle OPTIONS preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+}, express.static(path.join(__dirname, 'uploads')));
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -413,6 +434,7 @@ app.post('/test-agreement', async (req, res) => {
 
 // API routes
 app.use('/api/auth', authRoutes);
+app.use('/api/profile', profileRoutes);
 app.use('/api/journal-entries', journalEntryRoutes);
 app.use('/api/inventory-items', inventoryItemsRoutes);
 app.use('/api/bin-cards', binCardsRoutes);

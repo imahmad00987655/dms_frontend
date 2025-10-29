@@ -27,28 +27,16 @@ interface Ledger {
 const LedgerConfigurations = () => {
   const { toast } = useToast();
   
-  const [ledgers, setLedgers] = useState<Ledger[]>([
-    {
-      id: 1,
-      name: "Primary Distribution Ledger",
-      type: "Primary",
-      currency: "USD",
-      coa: "Distribution CoA",
-      method: "Accrual",
-      arApEnabled: true,
-      status: "Active",
-      created_at: "2024-01-01T00:00:00Z"
-    }
-  ]);
+  const [ledgers, setLedgers] = useState<Ledger[]>([]);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const [ledgerForm, setLedgerForm] = useState({
-    name: "Primary Distribution Ledger",
+    name: "",
     type: "Primary" as 'Primary' | 'Secondary' | 'Subsidiary',
     currency: "USD",
-    coa: "Distribution CoA",
+    coa: "",
     method: "Accrual" as 'Accrual' | 'Cash'
   });
 
@@ -96,7 +84,7 @@ const LedgerConfigurations = () => {
       name: "",
       type: "Primary",
       currency: "USD",
-      coa: "Distribution CoA",
+      coa: "",
       method: "Accrual"
     });
   };
@@ -195,7 +183,7 @@ const LedgerConfigurations = () => {
                   id="ledger-name"
                   value={ledgerForm.name}
                   onChange={(e) => setLedgerForm({ ...ledgerForm, name: e.target.value })}
-                  placeholder="Primary Distribution Ledger"
+                  placeholder="Enter ledger name"
                 />
               </div>
 
@@ -232,12 +220,10 @@ const LedgerConfigurations = () => {
                 <Label htmlFor="coa">Chart of Accounts</Label>
                 <Select value={ledgerForm.coa} onValueChange={(value) => setLedgerForm({ ...ledgerForm, coa: value })}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Select CoA" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Distribution CoA">Distribution CoA</SelectItem>
-                    <SelectItem value="Standard CoA">Standard CoA</SelectItem>
-                    <SelectItem value="Custom CoA">Custom CoA</SelectItem>
+                    {/* CoA options will be populated from API */}
                   </SelectContent>
                 </Select>
               </div>

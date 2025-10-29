@@ -7,16 +7,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { 
   Plus, 
-  X, 
+  X,
   Eye,
-  FileText,
-  Settings as SettingsIcon,
-  Building2,
-  DollarSign,
-  Users,
-  Trash2,
   Edit
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -24,33 +27,31 @@ import { useToast } from "@/hooks/use-toast";
 interface Segment {
   id: string;
   name: string;
+  value: string;
   length: number;
-  valueSet: string;
-}
-
-interface ValueSet {
-  id: string;
-  name: string;
-  type: 'Independent' | 'Table';
-  valuesCount: number;
-  values: Value[];
-}
-
-interface Value {
-  id: string;
-  code: string;
-  description: string;
 }
 
 interface CoAInstance {
-  id: string;
-  name: string;
-  description: string;
-  status: 'Active' | 'Inactive';
-  segments: Segment[];
-  formatPreview: string;
-  assignedLedgers: string[];
-  usedBy: string[];
+  id: number;
+  coa_code: string;
+  coa_name: string;
+  description: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
+  created_at: string;
+  updated_at: string;
+  segments?: Segment[];
+  assignedLedgers?: string[];
+  usedBy?: string[];
+}
+
+interface LedgerConfiguration {
+  id: number;
+  ledger_name: string;
+  ledger_type: string;
+  currency: string;
+  coa_instance_id: number;
+  coa_code?: string;
+  coa_name?: string;
 }
 
 interface HeaderAssignment {
@@ -64,8 +65,26 @@ interface HeaderAssignment {
 
 interface NewSegment {
   name: string;
+  value: string;
   length: string | number;
-  valueSet: string;
+}
+
+interface CoAData {
+  id: number;
+  coa_name: string;
+  description: string | null;
+  segment_1_name: string | null;
+  segment_1_value: string;
+  segment_2_name: string | null;
+  segment_2_value: string;
+  segment_3_name: string | null;
+  segment_3_value: string;
+  segment_4_name: string | null;
+  segment_4_value: string;
+  segment_5_name: string | null;
+  segment_5_value: string;
+  segment_length: number;
+  created_at: string;
 }
 
 const API_BASE_URL = 'http://localhost:5000/api';
@@ -74,47 +93,38 @@ const ChartOfAccountSetup = () => {
   const { toast } = useToast();
   
   // State for Structure Definition
-  const [coaName, setCoaName] = useState("Distribution CoA");
-  const [description, setDescription] = useState("Standard chart of accounts for distribution operations");
+  const [showForm, setShowForm] = useState(false);
+  const [coaName, setCoaName] = useState("");
+  const [description, setDescription] = useState("");
   const [segments, setSegments] = useState<Segment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [coaList, setCoaList] = useState<CoAData[]>([]);
+  const [viewingCoA, setViewingCoA] = useState<CoAData | null>(null);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [editingCoA, setEditingCoA] = useState<CoAData | null>(null);
   
   // State for new segment
   const [newSegment, setNewSegment] = useState<NewSegment>({
     name: "",
-    length: "",
-    valueSet: ""
+    value: "",
+    length: "5"
   });
 
-  // Fetch segments from API
-  useEffect(() => {
-    const loadData = async () => {
-      await fetchSegments();
-      await fetchValueSets();
-    };
-    loadData();
-  }, []);
-  
-  const fetchSegments = async () => {
+  // Fetch all CoAs from API
+  const fetchCoAs = async () => {
     try {
       setLoading(true);
       const response = await fetch(`${API_BASE_URL}/chart-of-accounts/segments`);
       const result = await response.json();
       
-      if (result.success) {
-        const formattedSegments = result.data.map((seg: any) => ({
-          id: seg.id.toString(),
-          name: seg.segment_name,
-          length: seg.segment_length,
-          valueSet: seg.value_set_name || ""
-        }));
-        setSegments(formattedSegments);
+      if (result.success && result.data) {
+        setCoaList(result.data);
       }
     } catch (error) {
-      console.error('Error fetching segments:', error);
+      console.error('Error fetching CoAs:', error);
       toast({
         title: "Error",
-        description: "Failed to fetch segments",
+        description: "Failed to fetch Chart of Accounts",
         variant: "destructive"
       });
     } finally {
@@ -122,75 +132,105 @@ const ChartOfAccountSetup = () => {
     }
   };
   
-  const fetchValueSets = async () => {
+  // Fetch CoA instances
+  const fetchCoAInstances = async () => {
     try {
-      console.log('Fetching value sets from:', `${API_BASE_URL}/chart-of-accounts/value-sets`);
-      const response = await fetch(`${API_BASE_URL}/chart-of-accounts/value-sets`);
+      setInstancesLoading(true);
+      const response = await fetch(`${API_BASE_URL}/chart-of-accounts/instances`);
       const result = await response.json();
-      console.log('Value sets API response:', result);
       
       if (result.success && result.data) {
-        // Format value sets to match the component's interface
-        const formatted = await Promise.all(result.data.map(async (vs: any) => {
-          try {
-            const valuesRes = await fetch(`${API_BASE_URL}/chart-of-accounts/value-sets/${vs.id}`);
-            const valuesData = await valuesRes.json();
+        // Fetch ledger assignments
+        const ledgersResponse = await fetch(`${API_BASE_URL}/chart-of-accounts/ledgers`);
+        const ledgersResult = await ledgersResponse.json();
+        const allLedgers = ledgersResult.success ? ledgersResult.data : [];
+        
+        // Fetch segments and ledger assignments for each instance
+        const instancesWithData = await Promise.all(
+          result.data.map(async (instance: CoAInstance) => {
+            // Fetch segments for this instance
+            let instanceSegments: Segment[] = [];
+            try {
+              const segmentsResponse = await fetch(`${API_BASE_URL}/chart-of-accounts/instances/${instance.id}`);
+              const segmentsResult = await segmentsResponse.json();
+              if (segmentsResult.success && segmentsResult.data.segments) {
+                instanceSegments = segmentsResult.data.segments.map((seg: { segment_name: string; segment_length: number }, idx: number) => ({
+                  id: `${instance.id}-${idx}`,
+                  name: seg.segment_name,
+                  value: '',
+                  length: seg.segment_length
+                }));
+              }
+            } catch (err) {
+              console.error(`Error fetching segments for instance ${instance.id}:`, err);
+            }
+            
+            // Get assigned ledgers for this instance
+            const assignedLedgers = allLedgers
+              .filter((l: LedgerConfiguration) => l.coa_instance_id === instance.id)
+              .map((l: LedgerConfiguration) => l.ledger_name);
+            
             return {
-              id: vs.id.toString(),
-              name: vs.value_set_name,
-              type: vs.value_set_type === 'INDEPENDENT' ? 'Independent' : 'Table',
-              valuesCount: valuesData.success && valuesData.data.values ? valuesData.data.values.length : 0,
-              values: valuesData.success && valuesData.data.values ? valuesData.data.values.map((val: any) => ({
-                id: val.id.toString(),
-                code: val.value_code,
-                description: val.value_description
-              })) : []
+              ...instance,
+              segments: instanceSegments,
+              assignedLedgers,
+              usedBy: [] // Can be populated later from other modules
             };
-          } catch (error) {
-            console.error(`Error fetching values for value set ${vs.id}:`, error);
-            return {
-              id: vs.id.toString(),
-              name: vs.value_set_name,
-              type: vs.value_set_type === 'INDEPENDENT' ? 'Independent' : 'Table',
-              valuesCount: 0,
-              values: []
-            };
-          }
-        }));
-        console.log('Formatted value sets:', formatted);
-        setValueSets(formatted);
-        console.log('Value Sets loaded:', formatted.length);
-      } else {
-        console.warn('No value sets found or API returned:', result);
+          })
+        );
+        setCoaInstances(instancesWithData);
       }
     } catch (error) {
-      console.error('Error fetching value sets:', error);
+      console.error('Error fetching CoA instances:', error);
       toast({
         title: "Error",
-        description: "Failed to fetch value sets",
+        description: "Failed to fetch CoA instances",
         variant: "destructive"
       });
+    } finally {
+      setInstancesLoading(false);
     }
   };
 
-  // State for Value Sets  
-  const [valueSets, setValueSets] = useState<ValueSet[]>([]);
-
-  // State for modals
-  const [showValueSetModal, setShowValueSetModal] = useState(false);
-  const [showValuesModal, setShowValuesModal] = useState(false);
-  const [selectedValueSet, setSelectedValueSet] = useState<ValueSet | null>(null);
-  const [newValueSet, setNewValueSet] = useState({
-    name: "",
-    type: "Independent" as 'Independent' | 'Table'
-  });
-  const [newValue, setNewValue] = useState({
-    code: "",
-    description: ""
-  });
+  // Fetch ledgers
+  const fetchLedgers = async () => {
+    try {
+      setLedgersLoading(true);
+      const response = await fetch(`${API_BASE_URL}/chart-of-accounts/ledgers`);
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        setLedgers(result.data);
+      }
+    } catch (error) {
+      console.error('Error fetching ledgers:', error);
+    } finally {
+      setLedgersLoading(false);
+    }
+  };
+  
+  useEffect(() => {
+    const loadData = async () => {
+      await fetchCoAs();
+      await fetchCoAInstances();
+      await fetchLedgers();
+    };
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // State for CoA Instances
-  const [coaInstances] = useState<CoAInstance[]>([]);
+  const [coaInstances, setCoaInstances] = useState<CoAInstance[]>([]);
+  const [instancesLoading, setInstancesLoading] = useState(false);
+  const [showInstanceForm, setShowInstanceForm] = useState(false);
+  const [selectedCoAStructure, setSelectedCoAStructure] = useState<CoAData | null>(null);
+  const [newInstanceData, setNewInstanceData] = useState({
+    coa_code: "",
+    coa_name: "",
+    description: ""
+  });
+  const [ledgers, setLedgers] = useState<LedgerConfiguration[]>([]);
+  const [ledgersLoading, setLedgersLoading] = useState(false);
 
   // State for Header Assignments
   const [headerAssignments, setHeaderAssignments] = useState<HeaderAssignment[]>([]);
@@ -204,38 +244,50 @@ const ChartOfAccountSetup = () => {
 
   const handleAddSegment = async () => {
     const lengthValue = typeof newSegment.length === 'string' ? parseInt(newSegment.length) : newSegment.length;
-    if (newSegment.name && lengthValue > 0) {
-      try {
-        const response = await fetch(`${API_BASE_URL}/chart-of-accounts/segments`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            segment_name: newSegment.name,
-            segment_length: lengthValue,
-            value_set_name: newSegment.valueSet || null,
-            display_order: segments.length + 1
-          })
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-          await fetchSegments(); // Refresh segments
-          setNewSegment({ name: "", length: "", valueSet: "" });
+    
+    // Check if already 5 segments
+    if (segments.length >= 5) {
       toast({
-        title: "Success",
-        description: "Segment added successfully",
+        title: "Limit Reached",
+        description: "Maximum 5 segments allowed",
+        variant: "destructive"
       });
-        }
-      } catch (error) {
-        console.error('Error creating segment:', error);
-        toast({
-          title: "Error",
-          description: "Failed to add segment",
-          variant: "destructive"
-        });
-      }
+      return;
     }
+    
+    if (!newSegment.name || !newSegment.value) {
+      toast({
+        title: "Error",
+        description: "Please enter both segment name and value",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    if (lengthValue <= 0) {
+      toast({
+        title: "Error",
+        description: "Please enter a valid length",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Add segment locally without API call (we'll save all at once)
+    const newSegmentData: Segment = {
+      id: Date.now().toString(),
+      name: newSegment.name,
+      value: newSegment.value,
+      length: lengthValue
+    };
+    
+    setSegments([...segments, newSegmentData]);
+    setNewSegment({ name: "", value: "", length: "5" });
+    
+    toast({
+      title: "Success",
+      description: "Segment added successfully",
+    });
   };
 
   const handleRemoveSegment = (id: string) => {
@@ -246,52 +298,240 @@ const ChartOfAccountSetup = () => {
     });
   };
 
-  const handleCreateValueSet = () => {
-    if (newValueSet.name) {
-      const valueSet: ValueSet = {
-        id: Date.now().toString(),
-        name: newValueSet.name,
-        type: newValueSet.type,
-        valuesCount: 0,
-        values: []
-      };
-      setValueSets([...valueSets, valueSet]);
-      setNewValueSet({ name: "", type: "Independent" });
-      setShowValueSetModal(false);
-      toast({
-        title: "Success",
-        description: "Value set created successfully",
-      });
-    }
+  const handleViewCoA = (coa: CoAData) => {
+    setViewingCoA(coa);
+    setShowViewModal(true);
   };
 
-  const handleAddValue = () => {
-    if (newValue.code && newValue.description && selectedValueSet) {
-      const value: Value = {
-        id: Date.now().toString(),
-        code: newValue.code,
-        description: newValue.description
-      };
-      
-      const updatedValueSets = valueSets.map(vs => 
-        vs.id === selectedValueSet.id 
-          ? { ...vs, values: [...vs.values, value], valuesCount: vs.valuesCount + 1 }
-          : vs
-      );
-      setValueSets(updatedValueSets);
-      setNewValue({ code: "", description: "" });
-      toast({
-        title: "Success",
-        description: "Value added successfully",
-      });
-    }
-  };
-
-  const handleCreateCoA = () => {
-    toast({
-      title: "Success",
-      description: "Chart of Accounts created successfully",
+  const handleEditCoA = (coa: CoAData) => {
+    setEditingCoA(coa);
+    setCoaName(coa.coa_name);
+    setDescription(coa.description || "");
+    
+    // Extract segments from the CoA data
+    const coaSegments: Segment[] = [];
+    [
+      { name: coa.segment_1_name, value: coa.segment_1_value },
+      { name: coa.segment_2_name, value: coa.segment_2_value },
+      { name: coa.segment_3_name, value: coa.segment_3_value },
+      { name: coa.segment_4_name, value: coa.segment_4_value },
+      { name: coa.segment_5_name, value: coa.segment_5_value }
+    ].forEach((seg, idx) => {
+      if (seg.name && seg.name !== 'None') {
+        coaSegments.push({
+          id: `${coa.id}-${idx}`,
+          name: seg.name,
+          value: seg.value,
+          length: coa.segment_length || 5
+        });
+      }
     });
+    
+    setSegments(coaSegments);
+    setShowForm(true);
+  };
+
+  const handleCreateCoA = async () => {
+    if (!coaName) {
+      toast({
+        title: "Error",
+        description: "Please enter CoA Name",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (segments.length === 0) {
+      toast({
+        title: "Error",
+        description: "Please add at least one segment",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      // Fill remaining segments with "None" if less than 5
+      const allSegments = [...segments];
+      while (allSegments.length < 5) {
+        allSegments.push({
+          id: `none-${allSegments.length}`,
+          name: "None",
+          value: "00000",
+          length: 5
+        });
+      }
+
+      // Prepare data for the new 5-column structure
+      // Ensure all values are explicitly set (no undefined) - use null for missing values
+      const requestData: {
+        coa_name: string | null;
+        description: string | null;
+        segment_1_name: string | null;
+        segment_1_value: string;
+        segment_2_name: string | null;
+        segment_2_value: string;
+        segment_3_name: string | null;
+        segment_3_value: string;
+        segment_4_name: string | null;
+        segment_4_value: string;
+        segment_5_name: string | null;
+        segment_5_value: string;
+        segment_length: number;
+        status?: string;
+        created_by?: number;
+      } = {
+        coa_name: coaName || null,
+        description: description || null,
+        segment_1_name: (allSegments[0]?.name && allSegments[0].name !== 'None') ? allSegments[0].name : null,
+        segment_1_value: allSegments[0]?.value || '00000',
+        segment_2_name: (allSegments[1]?.name && allSegments[1].name !== 'None') ? allSegments[1].name : null,
+        segment_2_value: allSegments[1]?.value || '00000',
+        segment_3_name: (allSegments[2]?.name && allSegments[2].name !== 'None') ? allSegments[2].name : null,
+        segment_3_value: allSegments[2]?.value || '00000',
+        segment_4_name: (allSegments[3]?.name && allSegments[3].name !== 'None') ? allSegments[3].name : null,
+        segment_4_value: allSegments[3]?.value || '00000',
+        segment_5_name: (allSegments[4]?.name && allSegments[4].name !== 'None') ? allSegments[4].name : null,
+        segment_5_value: allSegments[4]?.value || '00000',
+        segment_length: 5
+      };
+
+      // Only add status for new entries, don't send it for updates
+      if (!editingCoA) {
+        requestData.status = 'ACTIVE';
+        requestData.created_by = 1;
+      }
+
+      let url = `${API_BASE_URL}/chart-of-accounts/segments`;
+      let method = 'POST';
+      
+      // If editing, use PUT method with ID
+      if (editingCoA) {
+        url = `${API_BASE_URL}/chart-of-accounts/segments/${editingCoA.id}`;
+        method = 'PUT';
+      }
+
+      // Send request
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        toast({
+          title: "Success",
+          description: editingCoA 
+            ? "Chart of Accounts updated successfully" 
+            : "Chart of Accounts created successfully with 5 segments",
+        });
+        
+        // Reset form
+        setCoaName("");
+        setDescription("");
+        setSegments([]);
+        setEditingCoA(null);
+        setShowForm(false);
+        await fetchCoAs(); // Refresh to show all CoAs from database
+        await fetchCoAInstances(); // Refresh instances in case any were affected
+      } else {
+        throw new Error(result.error || 'Failed to save CoA');
+      }
+    } catch (error) {
+      console.error('Error saving CoA:', error);
+      toast({
+        title: "Error",
+        description: editingCoA 
+          ? "Failed to update Chart of Accounts" 
+          : "Failed to create Chart of Accounts",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleCreateInstance = async () => {
+    if (!newInstanceData.coa_code || !newInstanceData.coa_name) {
+      toast({
+        title: "Error",
+        description: "Please fill in CoA Code and CoA Name",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (!selectedCoAStructure) {
+      toast({
+        title: "Error",
+        description: "Please select a Chart of Accounts structure",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      // Extract segments from the selected structure
+      const instanceSegments: Segment[] = [];
+      [
+        { name: selectedCoAStructure.segment_1_name, value: selectedCoAStructure.segment_1_value },
+        { name: selectedCoAStructure.segment_2_name, value: selectedCoAStructure.segment_2_value },
+        { name: selectedCoAStructure.segment_3_name, value: selectedCoAStructure.segment_3_value },
+        { name: selectedCoAStructure.segment_4_name, value: selectedCoAStructure.segment_4_value },
+        { name: selectedCoAStructure.segment_5_name, value: selectedCoAStructure.segment_5_value }
+      ].forEach((seg, idx) => {
+        if (seg.name && seg.name !== 'None') {
+          instanceSegments.push({
+            id: `${selectedCoAStructure.id}-${idx}`,
+            name: seg.name,
+            value: seg.value || '00000',
+            length: selectedCoAStructure.segment_length || 5
+          });
+        }
+      });
+
+      const requestData = {
+        coa_code: newInstanceData.coa_code,
+        coa_name: newInstanceData.coa_name,
+        description: newInstanceData.description || null,
+        segments: instanceSegments.map((seg, idx) => ({
+          name: seg.name,
+          length: seg.length,
+          display_order: idx
+        })),
+        created_by: 1
+      };
+
+      const response = await fetch(`${API_BASE_URL}/chart-of-accounts/instances`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        toast({
+          title: "Success",
+          description: "CoA Instance created successfully",
+        });
+        
+        // Reset form
+        setNewInstanceData({ coa_code: "", coa_name: "", description: "" });
+        setSelectedCoAStructure(null);
+        setShowInstanceForm(false);
+        await fetchCoAInstances();
+      } else {
+        throw new Error(result.error || 'Failed to create CoA instance');
+      }
+    } catch (error) {
+      console.error('Error creating CoA instance:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create CoA Instance",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleCreateHeaderAssignment = () => {
@@ -327,15 +567,54 @@ const ChartOfAccountSetup = () => {
       <Card className="bg-white shadow-lg">
         <CardContent className="p-6">
           <Tabs defaultValue="structure-definition" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="structure-definition">Structure Definition</TabsTrigger>
-              <TabsTrigger value="value-sets">Value Sets</TabsTrigger>
               <TabsTrigger value="instances-assignments">Instances & Assignments</TabsTrigger>
               <TabsTrigger value="header-assignments">Header Assignments</TabsTrigger>
             </TabsList>
 
             {/* Structure Definition Tab */}
             <TabsContent value="structure-definition" className="space-y-6">
+              <div className="space-y-6">
+                {/* Create Chart of Account Button */}
+                {!showForm && (
+                  <div className="flex justify-end">
+                    <Button 
+                      onClick={() => {
+                        setEditingCoA(null);
+                        setCoaName("");
+                        setDescription("");
+                        setSegments([]);
+                        setShowForm(true);
+                      }} 
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create Chart of Account
+                    </Button>
+                  </div>
+                )}
+
+                {/* Form Dialog */}
+                <Dialog open={showForm} onOpenChange={(open) => {
+                  if (!open) {
+                    setShowForm(false);
+                    setEditingCoA(null);
+                    setCoaName("");
+                    setDescription("");
+                    setSegments([]);
+                  } else {
+                    setShowForm(true);
+                  }
+                }}>
+                  <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>{editingCoA ? 'Edit Chart of Accounts' : 'Create Chart of Accounts'}</DialogTitle>
+                      <DialogDescription>
+                        {editingCoA ? 'Update the structure of your Chart of Accounts' : 'Define the structure of your Chart of Accounts by adding segments'}
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-6 py-4">
               <div className="space-y-4">
                 <div>
                   <Label htmlFor="coa-name">CoA Name *</Label>
@@ -343,6 +622,7 @@ const ChartOfAccountSetup = () => {
                     id="coa-name"
                     value={coaName}
                     onChange={(e) => setCoaName(e.target.value)}
+                    placeholder="Enter CoA Name"
                     className="mt-1"
                   />
                 </div>
@@ -353,6 +633,7 @@ const ChartOfAccountSetup = () => {
                     id="description"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Enter Description"
                     className="mt-1 w-full p-3 border border-gray-300 rounded-md resize-none"
                     rows={3}
                   />
@@ -363,10 +644,15 @@ const ChartOfAccountSetup = () => {
                   
                   {/* Current Segments */}
                   <div className="space-y-2 mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium text-gray-700">
+                        {segments.length}/5 Segments Added
+                      </p>
+                    </div>
                     {segments.map((segment) => (
                       <div key={segment.id} className="flex items-center gap-2">
                         <Badge variant="secondary" className="bg-green-100 text-green-800">
-                          {segment.name} ({segment.length}{segment.valueSet ? `, ${segment.valueSet}` : ""})
+                          {segment.name}: {segment.value} (Length: {segment.length})
                         </Badge>
                         <Button
                           variant="ghost"
@@ -378,6 +664,9 @@ const ChartOfAccountSetup = () => {
                         </Button>
                       </div>
                     ))}
+                    {segments.length === 0 && (
+                      <p className="text-sm text-gray-500 italic">No segments added yet. Add up to 5 segments.</p>
+                    )}
                     {segments.length > 0 && (
                       <p className="text-sm text-gray-600">Preview: {formatPreview}</p>
                     )}
@@ -388,170 +677,580 @@ const ChartOfAccountSetup = () => {
                     <h4 className="font-medium">Add New Segment</h4>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       <div>
-                        <Label htmlFor="segment-name">Segment Name</Label>
+                        <Label htmlFor="segment-name">Segment Name *</Label>
                         <Input
                           id="segment-name"
                           value={newSegment.name}
                           onChange={(e) => setNewSegment({ ...newSegment, name: e.target.value })}
-                          placeholder="Company"
+                          placeholder="e.g., Company"
                         />
                       </div>
                       <div>
-                        <Label htmlFor="length">Length</Label>
+                        <Label htmlFor="segment-value">Segment Value *</Label>
+                        <Input
+                          id="segment-value"
+                          value={newSegment.value}
+                          onChange={(e) => {
+                            // Limit input to 5 digits
+                            const value = e.target.value.replace(/\D/g, '').slice(0, 5);
+                            setNewSegment({ ...newSegment, value });
+                          }}
+                          placeholder="e.g., 00001"
+                          maxLength={5}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="length">Length (Fixed: 5)</Label>
                         <Input
                           id="length"
                           type="number"
-                          value={newSegment.length}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            // Only allow values between 1 and 99999 (5 digits max)
-                            if (value === '' || (value.length <= 5 && /^\d+$/.test(value))) {
-                              setNewSegment({ ...newSegment, length: value });
-                            }
-                          }}
-                          maxLength={5}
-                          min={1}
-                          max={99999}
-                          placeholder="Enter five digits"
-                          className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          value="5"
+                          disabled
+                          className="bg-gray-100 cursor-not-allowed"
                         />
                       </div>
-                      <div>
-                        <Label htmlFor="value-set">Value Set</Label>
-                        <Select value={newSegment.valueSet || undefined} onValueChange={(value) => setNewSegment({ ...newSegment, valueSet: value })}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select value set" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {valueSets && valueSets.length > 0 ? (
-                              valueSets.map((vs) => (
-                                <SelectItem key={vs.id} value={vs.name}>{vs.name}</SelectItem>
-                              ))
-                            ) : (
-                              <div className="px-2 py-6 text-center text-sm text-gray-500">
-                                No value sets available. Please import the database schema.
-                              </div>
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </div>
                       <div className="flex items-end">
-                        <Button onClick={handleAddSegment} className="bg-green-600 hover:bg-green-700">
+                        <Button 
+                          onClick={handleAddSegment} 
+                          className="bg-green-600 hover:bg-green-700"
+                          disabled={segments.length >= 5}
+                        >
                           <Plus className="w-4 h-4 mr-2" />
                           Add
                         </Button>
                       </div>
                     </div>
+                    <p className="text-sm text-gray-600">
+                      * Required fields. Maximum 5 segments allowed. Remaining slots will be filled with "None" when creating the Chart of Accounts.
+                    </p>
                   </div>
                 </div>
-
-                <div className="flex justify-end">
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => {
+                          setShowForm(false);
+                          setEditingCoA(null);
+                          setCoaName("");
+                          setDescription("");
+                          setSegments([]);
+                        }}
+                      >
+                        Cancel
+                      </Button>
                   <Button onClick={handleCreateCoA} className="bg-green-600 hover:bg-green-700">
-                    Create Chart of Accounts
+                        {editingCoA ? 'Update Chart of Accounts' : 'Create Chart of Accounts'}
                   </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Chart of Accounts Table */}
+                <Card className="bg-white shadow-lg">
+                  <CardHeader>
+                    <CardTitle>Chart of Accounts</CardTitle>
+                    <CardDescription>
+                      View all created Chart of Accounts and their segments
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {loading ? (
+                      <div className="text-center py-8 text-gray-500">Loading...</div>
+                    ) : coaList.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        No Chart of Accounts created yet. Click "Create Chart of Account" to get started.
                 </div>
-              </div>
-            </TabsContent>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>CoA Name</TableHead>
+                              <TableHead>Description</TableHead>
+                              <TableHead>Segments</TableHead>
+                              <TableHead>Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {coaList.map((coa) => {
+                              // Extract segments that are not "None"
+                              const coaSegments = [
+                                { name: coa.segment_1_name, value: coa.segment_1_value },
+                                { name: coa.segment_2_name, value: coa.segment_2_value },
+                                { name: coa.segment_3_name, value: coa.segment_3_value },
+                                { name: coa.segment_4_name, value: coa.segment_4_value },
+                                { name: coa.segment_5_name, value: coa.segment_5_value }
+                              ].filter(s => s.name && s.name !== 'None');
+                              
+                              return (
+                                <TableRow key={coa.id}>
+                                  <TableCell className="font-medium">{coa.coa_name}</TableCell>
+                                  <TableCell className="text-gray-600">
+                                    {coa.description || '-'}
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex flex-wrap gap-2">
+                                      {coaSegments.map((seg, idx) => (
+                                        <Badge 
+                                          key={idx} 
+                                          variant="secondary" 
+                                          className="bg-green-100 text-green-800"
+                                        >
+                                          {seg.name}: {seg.value}
+                                        </Badge>
+                                      ))}
+                                      {coaSegments.length === 0 && (
+                                        <span className="text-gray-400 text-sm">No segments</span>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleViewCoA(coa)}
+                                        className="h-8 w-8 p-0 hover:bg-green-100"
+                                        title="View Chart of Account"
+                                      >
+                                        <Eye className="w-4 h-4 text-green-600" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleEditCoA(coa)}
+                                        className="h-8 w-8 p-0 hover:bg-blue-100"
+                                        title="Edit Chart of Account"
+                                      >
+                                        <Edit className="w-4 h-4 text-blue-600" />
+                  </Button>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                </div>
+                    )}
+                  </CardContent>
+                </Card>
 
-            {/* Value Sets Tab */}
-            <TabsContent value="value-sets" className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">Value Sets</h3>
-                <Button 
-                  onClick={() => setShowValueSetModal(true)}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Value Set
-                </Button>
-              </div>
+                {/* View Chart of Account Dialog */}
+                <Dialog open={showViewModal} onOpenChange={(open) => {
+                  if (!open) {
+                    setShowViewModal(false);
+                    setViewingCoA(null);
+                  } else {
+                    setShowViewModal(true);
+                  }
+                }}>
+                  <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>Chart of Account Details</DialogTitle>
+                      <DialogDescription>
+                        View complete information about this Chart of Account
+                      </DialogDescription>
+                    </DialogHeader>
+                    {viewingCoA && (
+                      <div className="space-y-6 py-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Basic Information */}
+                          <div className="space-y-4">
+                            <div>
+                              <Label className="text-sm font-medium text-gray-600">CoA Name</Label>
+                              <div className="mt-1 p-3 bg-gray-50 rounded-md border">
+                                <span className="text-gray-900 font-medium">{viewingCoA.coa_name}</span>
+                              </div>
+                            </div>
+                            
+                            <div>
+                              <Label className="text-sm font-medium text-gray-600">Description</Label>
+                              <div className="mt-1 p-3 bg-gray-50 rounded-md border min-h-[60px]">
+                                <span className="text-gray-900">
+                                  {viewingCoA.description || 'No description provided'}
+                                </span>
+                              </div>
+                            </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Set Name</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Type</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Values Count</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {valueSets.map((valueSet) => (
-                      <tr key={valueSet.id} className="border-b border-gray-100 hover:bg-gray-50/50">
-                        <td className="py-3 px-4 text-sm font-medium text-gray-900">{valueSet.name}</td>
-                        <td className="py-3 px-4">
-                          <Badge variant="secondary" className="bg-gray-100 text-gray-800">
-                            {valueSet.type}
-                          </Badge>
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-600">{valueSet.valuesCount}</td>
-                        <td className="py-3 px-4">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedValueSet(valueSet);
-                              setShowValuesModal(true);
-                            }}
-                            className="h-8 px-3 hover:bg-blue-100"
-                          >
-                            <Eye className="w-4 h-4 mr-1" />
-                            View Values
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                            <div>
+                              <Label className="text-sm font-medium text-gray-600">Segment Length</Label>
+                              <div className="mt-1 p-3 bg-gray-50 rounded-md border">
+                                <span className="text-gray-900">{viewingCoA.segment_length}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Additional Information */}
+                          <div className="space-y-4">
+                            <div>
+                              <Label className="text-sm font-medium text-gray-600">Created At</Label>
+                              <div className="mt-1 p-3 bg-gray-50 rounded-md border">
+                                <span className="text-gray-900">
+                                  {new Date(viewingCoA.created_at).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Segments Section */}
+                        <div className="border-t pt-6">
+                          <h3 className="text-lg font-semibold mb-4">Segments</h3>
+                          <div className="space-y-3">
+                            {[
+                              { name: viewingCoA.segment_1_name, value: viewingCoA.segment_1_value, num: 1 },
+                              { name: viewingCoA.segment_2_name, value: viewingCoA.segment_2_value, num: 2 },
+                              { name: viewingCoA.segment_3_name, value: viewingCoA.segment_3_value, num: 3 },
+                              { name: viewingCoA.segment_4_name, value: viewingCoA.segment_4_value, num: 4 },
+                              { name: viewingCoA.segment_5_name, value: viewingCoA.segment_5_value, num: 5 }
+                            ].map((seg, idx) => (
+                              seg.name && seg.name !== 'None' && (
+                                <div key={idx} className="border rounded-lg p-4 bg-gray-50">
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <p className="font-medium text-gray-900">
+                                        Segment {seg.num}: {seg.name}
+                                      </p>
+                                      <p className="text-sm text-gray-600 mt-1">Value: {seg.value}</p>
+                                    </div>
+                                    <Badge variant="secondary" className="bg-green-100 text-green-800">
+                                      Length: {viewingCoA.segment_length}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              )
+                            ))}
+                            {[
+                              { name: viewingCoA.segment_1_name, value: viewingCoA.segment_1_value },
+                              { name: viewingCoA.segment_2_name, value: viewingCoA.segment_2_value },
+                              { name: viewingCoA.segment_3_name, value: viewingCoA.segment_3_value },
+                              { name: viewingCoA.segment_4_name, value: viewingCoA.segment_4_value },
+                              { name: viewingCoA.segment_5_name, value: viewingCoA.segment_5_value }
+                            ].filter(s => s.name && s.name !== 'None').length === 0 && (
+                              <div className="text-center py-8 text-gray-400">
+                                No segments defined
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <DialogFooter>
+                      <Button
+                        onClick={() => setShowViewModal(false)}
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        Close
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
               </div>
             </TabsContent>
 
             {/* Instances & Assignments Tab */}
             <TabsContent value="instances-assignments" className="space-y-6">
+              <div className="space-y-6">
+                {/* Header with Create Button */}
+                <div className="flex items-center justify-between">
+                  <div>
               <h3 className="text-lg font-semibold">CoA Instances & Assignments</h3>
-              
-              {coaInstances.map((instance) => (
+                    <p className="text-sm text-gray-600 mt-1">
+                      Create instances from Chart of Accounts structures and manage ledger assignments
+                    </p>
+                  </div>
+                  {!showInstanceForm && (
+                    <Button 
+                      onClick={() => {
+                        if (coaList.length === 0) {
+                          toast({
+                            title: "No Structures Available",
+                            description: "Please create a Chart of Accounts structure first",
+                            variant: "destructive"
+                          });
+                          return;
+                        }
+                        setShowInstanceForm(true);
+                      }}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create Instance
+                    </Button>
+                  )}
+                </div>
+
+                {/* Create Instance Form Dialog */}
+                <Dialog open={showInstanceForm} onOpenChange={(open) => {
+                  if (!open) {
+                    setShowInstanceForm(false);
+                    setNewInstanceData({ coa_code: "", coa_name: "", description: "" });
+                    setSelectedCoAStructure(null);
+                  } else {
+                    setShowInstanceForm(true);
+                  }
+                }}>
+                  <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                      <DialogTitle>Create CoA Instance</DialogTitle>
+                      <DialogDescription>
+                        Create a new instance from an existing Chart of Accounts structure
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div>
+                        <Label htmlFor="coa-structure">Select Chart of Accounts Structure *</Label>
+                        <Select 
+                          value={selectedCoAStructure?.id.toString() || ""}
+                          onValueChange={(value) => {
+                            const selected = coaList.find(coa => coa.id.toString() === value);
+                            setSelectedCoAStructure(selected || null);
+                            if (selected) {
+                              setNewInstanceData({
+                                ...newInstanceData,
+                                coa_name: selected.coa_name || ""
+                              });
+                            }
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a Chart of Accounts structure" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {coaList.map((coa) => (
+                              <SelectItem key={coa.id} value={coa.id.toString()}>
+                                {coa.coa_name} {coa.description && `- ${coa.description}`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {selectedCoAStructure && (
+                          <div className="mt-2 p-3 bg-gray-50 rounded-md border">
+                            <p className="text-sm text-gray-600 mb-2">Selected Structure Segments:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {[
+                                { name: selectedCoAStructure.segment_1_name },
+                                { name: selectedCoAStructure.segment_2_name },
+                                { name: selectedCoAStructure.segment_3_name },
+                                { name: selectedCoAStructure.segment_4_name },
+                                { name: selectedCoAStructure.segment_5_name }
+                              ].filter(s => s.name && s.name !== 'None').map((seg, idx) => (
+                                <Badge key={idx} variant="secondary" className="bg-green-100 text-green-800">
+                                  {seg.name}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <Label htmlFor="instance-code">CoA Instance Code *</Label>
+                        <Input
+                          id="instance-code"
+                          value={newInstanceData.coa_code}
+                          onChange={(e) => setNewInstanceData({ ...newInstanceData, coa_code: e.target.value })}
+                          placeholder="e.g., COA-001"
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="instance-name">CoA Instance Name *</Label>
+                        <Input
+                          id="instance-name"
+                          value={newInstanceData.coa_name}
+                          onChange={(e) => setNewInstanceData({ ...newInstanceData, coa_name: e.target.value })}
+                          placeholder="e.g., Main Company CoA"
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="instance-description">Description</Label>
+                        <textarea
+                          id="instance-description"
+                          value={newInstanceData.description}
+                          onChange={(e) => setNewInstanceData({ ...newInstanceData, description: e.target.value })}
+                          placeholder="Enter description"
+                          className="w-full p-3 border border-gray-300 rounded-md resize-none"
+                          rows={3}
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button 
+                        variant="outline"
+                        onClick={() => {
+                          setShowInstanceForm(false);
+                          setNewInstanceData({ coa_code: "", coa_name: "", description: "" });
+                          setSelectedCoAStructure(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button onClick={handleCreateInstance} className="bg-green-600 hover:bg-green-700">
+                        Create Instance
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Available Chart of Accounts Structures */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Available Chart of Accounts Structures</CardTitle>
+                    <CardDescription>
+                      Structures available for creating instances
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {loading ? (
+                      <div className="text-center py-8 text-gray-500">Loading...</div>
+                    ) : coaList.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        No Chart of Accounts structures available. Create one in the Structure Definition tab.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {coaList.map((coa) => {
+                          const coaSegments = [
+                            { name: coa.segment_1_name },
+                            { name: coa.segment_2_name },
+                            { name: coa.segment_3_name },
+                            { name: coa.segment_4_name },
+                            { name: coa.segment_5_name }
+                          ].filter(s => s.name && s.name !== 'None');
+                          
+                          return (
+                            <div key={coa.id} className="border rounded-lg p-4 bg-gray-50">
+                              <div className="flex items-start justify-between mb-2">
+                                <div className="flex-1">
+                                  <h4 className="font-medium text-gray-900">{coa.coa_name}</h4>
+                                  {coa.description && (
+                                    <p className="text-sm text-gray-600 mt-1">{coa.description}</p>
+                                  )}
+                                </div>
+                                <Badge variant="secondary" className="bg-green-100 text-green-800">
+                                  ACTIVE
+                                </Badge>
+                              </div>
+                              <div className="mt-3">
+                                <p className="text-xs text-gray-500 mb-2">Segments ({coaSegments.length}):</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {coaSegments.map((seg, idx) => (
+                                    <Badge key={idx} variant="outline" className="text-xs">
+                                      {seg.name}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Created CoA Instances */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Created CoA Instances</CardTitle>
+                    <CardDescription>
+                      Instances created from Chart of Accounts structures and their ledger assignments
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {instancesLoading ? (
+                      <div className="text-center py-8 text-gray-500">Loading instances...</div>
+                    ) : coaInstances.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        No instances created yet. Click "Create Instance" to create one from an available structure.
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {coaInstances.map((instance) => {
+                          const formatPreview = instance.segments 
+                            ? instance.segments.map(s => s.name.substring(0, 3).toUpperCase()).join("-")
+                            : "N/A";
+                          
+                          return (
                 <Card key={instance.id} className="bg-gray-50">
                   <CardHeader>
                     <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-lg">{instance.name}</CardTitle>
-                        <CardDescription>{instance.description}</CardDescription>
+                                  <div className="flex-1">
+                                    <CardTitle className="text-lg">{instance.coa_name}</CardTitle>
+                                    <CardDescription>
+                                      Code: {instance.coa_code} {instance.description && `• ${instance.description}`}
+                                    </CardDescription>
                       </div>
-                      <Badge className="bg-green-100 text-green-800">{instance.status}</Badge>
+                                  <Badge className={
+                                    instance.status === 'ACTIVE' 
+                                      ? 'bg-green-100 text-green-800' 
+                                      : 'bg-gray-100 text-gray-800'
+                                  }>
+                                    {instance.status}
+                                  </Badge>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                                {instance.segments && instance.segments.length > 0 && (
                     <div>
                       <h4 className="font-medium mb-2">Segment Structure:</h4>
                       <div className="flex flex-wrap gap-2">
-                        {instance.segments.map((segment) => (
-                          <Badge key={segment.id} variant="secondary" className="bg-green-100 text-green-800">
-                            {segment.name} ({segment.length}{segment.valueSet ? `, ${segment.valueSet}` : ""})
+                                      {instance.segments.map((segment, idx) => (
+                                        <Badge key={idx} variant="secondary" className="bg-green-100 text-green-800">
+                                          {segment.name} (Length: {segment.length})
                           </Badge>
                         ))}
                       </div>
                     </div>
+                                )}
                     
                     <div>
                       <span className="font-medium">Format Preview: </span>
-                      <span className="text-gray-600">{instance.formatPreview}</span>
+                                  <span className="text-gray-600">{formatPreview}</span>
                     </div>
                     
-                    <div className="flex gap-4">
-                      <div className="bg-white p-3 rounded-lg">
-                        <p className="text-sm text-gray-600">Assigned Ledgers</p>
-                        <p className="font-medium">{instance.assignedLedgers.join(", ")}</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div className="bg-white p-3 rounded-lg border">
+                                    <p className="text-sm text-gray-600 mb-1">Assigned Ledgers</p>
+                                    {instance.assignedLedgers && instance.assignedLedgers.length > 0 ? (
+                                      <div className="flex flex-wrap gap-1 mt-1">
+                                        {instance.assignedLedgers.map((ledger, idx) => (
+                                          <Badge key={idx} variant="outline" className="text-xs">
+                                            {ledger}
+                                          </Badge>
+                                        ))}
                       </div>
-                      <div className="bg-white p-3 rounded-lg">
-                        <p className="text-sm text-gray-600">Used By</p>
-                        <p className="font-medium">{instance.usedBy.join(", ")}</p>
+                                    ) : (
+                                      <p className="text-sm text-gray-400">No ledgers assigned</p>
+                                    )}
                       </div>
+                                  <div className="bg-white p-3 rounded-lg border">
+                                    <p className="text-sm text-gray-600 mb-1">Used By</p>
+                                    {instance.usedBy && instance.usedBy.length > 0 ? (
+                                      <p className="text-sm font-medium">{instance.usedBy.join(", ")}</p>
+                                    ) : (
+                                      <p className="text-sm text-gray-400">Not assigned to any modules</p>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="text-xs text-gray-500 pt-2 border-t">
+                                  Created: {new Date(instance.created_at).toLocaleDateString()}
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+                          );
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
 
             {/* Header Assignments Tab */}
@@ -580,7 +1279,7 @@ const ChartOfAccountSetup = () => {
                     </SelectTrigger>
                     <SelectContent>
                       {coaInstances.map((instance) => (
-                        <SelectItem key={instance.id} value={instance.name}>{instance.name}</SelectItem>
+                        <SelectItem key={instance.id} value={instance.coa_name}>{instance.coa_name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -589,26 +1288,7 @@ const ChartOfAccountSetup = () => {
                 <div>
                   <h4 className="font-medium mb-3">Assign to Ledgers</h4>
                   <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox 
-                        id="primary-ledger"
-                        checked={newHeaderAssignment.assignedLedgers.includes("Primary Distribution Ledger")}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setNewHeaderAssignment({
-                              ...newHeaderAssignment,
-                              assignedLedgers: [...newHeaderAssignment.assignedLedgers, "Primary Distribution Ledger"]
-                            });
-                          } else {
-                                setNewHeaderAssignment({
-                                  ...newHeaderAssignment,
-                                  assignedLedgers: newHeaderAssignment.assignedLedgers.filter(l => l !== "Primary Distribution Ledger")
-                                });
-                              }
-                            }}
-                          />
-                          <Label htmlFor="primary-ledger">Primary Distribution Ledger</Label>
-                        </div>
+                    <p className="text-sm text-gray-600">No ledgers available. Please create ledgers first.</p>
                       </div>
                     </div>
 
@@ -734,122 +1414,6 @@ const ChartOfAccountSetup = () => {
               </Tabs>
             </CardContent>
           </Card>
-
-          {/* Value Set Modal */}
-          {showValueSetModal && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-              <Card className="w-full max-w-md bg-white shadow-2xl">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>Create New Value Set</CardTitle>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowValueSetModal(false)}
-                      className="h-8 w-8 p-0"
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label htmlFor="value-set-name">Value Set Name *</Label>
-                    <Input
-                      id="value-set-name"
-                      value={newValueSet.name}
-                      onChange={(e) => setNewValueSet({ ...newValueSet, name: e.target.value })}
-                      placeholder="AR Accounts"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="value-set-type">Type *</Label>
-                    <Select value={newValueSet.type} onValueChange={(value: 'Independent' | 'Table') => setNewValueSet({ ...newValueSet, type: value })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Independent">Independent</SelectItem>
-                        <SelectItem value="Table">Table</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => setShowValueSetModal(false)}>
-                      Cancel
-                    </Button>
-                    <Button onClick={handleCreateValueSet} className="bg-green-600 hover:bg-green-700">
-                      Create Value Set
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* Values Modal */}
-          {showValuesModal && selectedValueSet && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-              <Card className="w-full max-w-2xl bg-white shadow-2xl">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>Add New Value</CardTitle>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowValuesModal(false)}
-                      className="h-8 w-8 p-0"
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="value-code">Code</Label>
-                      <Input
-                        id="value-code"
-                        value={newValue.code}
-                        onChange={(e) => setNewValue({ ...newValue, code: e.target.value })}
-                        placeholder="AR-001"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="value-description">Description</Label>
-                      <Input
-                        id="value-description"
-                        value={newValue.description}
-                        onChange={(e) => setNewValue({ ...newValue, description: e.target.value })}
-                        placeholder="Customer Receivables"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <Button onClick={handleAddValue} className="bg-green-600 hover:bg-green-700">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add
-                    </Button>
-                  </div>
-                  
-                  {/* Existing Values */}
-                  <div className="mt-6">
-                    <h4 className="font-medium mb-3">Existing Values</h4>
-                    <div className="space-y-2">
-                      {selectedValueSet.values.map((value) => (
-                        <div key={value.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                          <div>
-                            <span className="font-medium">{value.code}</span>
-                            <span className="text-gray-600 ml-2">{value.description}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
         </div>
       );
     };

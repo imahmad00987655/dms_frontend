@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +28,8 @@ import {
   UserPlus,
   Settings as SettingsIcon,
   Crown,
-  Receipt
+  Receipt,
+  Loader2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import TaxTypesForm from "@/components/forms/TaxTypesForm";
@@ -36,16 +37,22 @@ import TaxRegimeForm from "@/components/forms/TaxRegimeForm";
 import TaxRatesForm from "@/components/forms/TaxRatesForm";
 import CompanySetup from "./CompanySetup";
 
+const API_BASE_URL = 'http://localhost:5000/api';
+
 const Settings = () => {
   const { toast } = useToast();
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
   const [settings, setSettings] = useState({
     // Profile settings
-    firstName: "John",
-    lastName: "Doe", 
-    email: "john.doe@company.com",
-    phone: "+1 (555) 123-4567",
-    company: "AccuFlow Distribution",
+    firstName: "",
+    lastName: "", 
+    email: "",
+    phone: "",
+    company: "",
     
     // Notification settings
     emailNotifications: true,
@@ -72,11 +79,224 @@ const Settings = () => {
     { id: 4, name: "Sarah Wilson", email: "sarah.wilson@company.com", role: "User", status: "Active" },
   ]);
 
-  const handleSave = (section: string) => {
+  // Fetch user profile
+  const fetchProfile = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        toast({
+          title: "Authentication Error",
+          description: "Please login to view your profile",
+          variant: "destructive"
+        });
+        setLoading(false);
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/profile/me`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const result = await response.json();
+      
+      console.log('Profile fetch response:', result); // Debug log
+      
+      if (!response.ok) {
+        throw new Error(result.error || result.message || 'Failed to fetch profile');
+      }
+
+      if (result.success && result.data) {
+        const user = result.data;
+        console.log('User data received:', user); // Debug log
+        
+        setSettings(prev => ({
+          ...prev,
+          firstName: user.first_name || "",
+          lastName: user.last_name || "",
+          email: user.email || "",
+          phone: user.phone || "",
+          company: user.company || ""
+        }));
+        
+        // If profile_image exists, use it directly (it's already a base64 data URL)
+        if (user.profile_image) {
+          // Check if it's already a data URL, if not, it might be an old file path
+          if (user.profile_image.startsWith('data:')) {
+            setProfileImage(user.profile_image);
+          } else {
+            // Legacy: if it's a file path, try to load it (for backward compatibility)
+            setProfileImage(`http://localhost:5000${user.profile_image}`);
+          }
+        } else {
+          setProfileImage(null);
+        }
+      } else {
+        throw new Error(result.error || 'No user data received');
+      }
+    } catch (error: any) {
+      console.error('Error fetching profile:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to load profile data",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSave = async (section: string) => {
+    if (section === 'Profile') {
+      try {
+        setSaving(true);
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_BASE_URL}/profile/me`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            first_name: settings.firstName,
+            last_name: settings.lastName,
+            email: settings.email,
+            phone: settings.phone,
+            company: settings.company
+          })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          toast({
+            title: "Settings Saved",
+            description: `${section} settings have been updated successfully.`,
+          });
+          await fetchProfile(); // Refresh profile data
+        } else {
+          throw new Error(result.error || 'Failed to save');
+        }
+      } catch (error) {
+        console.error('Error saving profile:', error);
+        toast({
+          title: "Error",
+          description: "Failed to save profile settings",
+          variant: "destructive"
+        });
+      } finally {
+        setSaving(false);
+      }
+    } else {
     toast({
       title: "Settings Saved",
       description: `${section} settings have been updated successfully.`,
     });
+    }
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid File",
+        description: "Please select an image file",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Validate file size (2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      toast({
+        title: "File Too Large",
+        description: "Image must be less than 2MB",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      setUploadingImage(true);
+      const token = localStorage.getItem('token');
+      const formData = new FormData();
+      formData.append('profileImage', file);
+
+      const response = await fetch(`${API_BASE_URL}/profile/me/upload-image`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const result = await response.json();
+      if (result.success && result.data) {
+        // Profile image is now a base64 data URL, use it directly
+        setProfileImage(result.data.profile_image);
+        toast({
+          title: "Success",
+          description: "Profile image uploaded successfully",
+        });
+      } else {
+        throw new Error(result.error || 'Failed to upload image');
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      toast({
+        title: "Error",
+        description: "Failed to upload profile image",
+        variant: "destructive"
+      });
+    } finally {
+      setUploadingImage(false);
+      // Reset input
+      event.target.value = '';
+    }
+  };
+
+  const handleDeleteImage = async () => {
+    try {
+      setUploadingImage(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/profile/me/image`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        setProfileImage(null);
+        toast({
+          title: "Success",
+          description: "Profile image deleted successfully",
+        });
+      } else {
+        throw new Error(result.error || 'Failed to delete image');
+      }
+    } catch (error) {
+      console.error('Error deleting image:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete profile image",
+        variant: "destructive"
+      });
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   const handleInputChange = (field: string, value: string | boolean | number) => {
@@ -148,21 +368,64 @@ const Settings = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                {loading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                  </div>
+                ) : (
+                  <>
                 <div className="flex items-center gap-6">
                   <Avatar className="w-20 h-20">
-                    <AvatarImage src="" />
+                        <AvatarImage src={profileImage || ""} />
                     <AvatarFallback className="text-lg bg-gradient-to-br from-blue-500 to-purple-600 text-white">
-                      {settings.firstName[0]}{settings.lastName[0]}
+                          {settings.firstName[0] || ''}{settings.lastName[0] || ''}
                     </AvatarFallback>
                   </Avatar>
                   <div className="space-y-2">
-                    <Button variant="outline" size="sm">
+                        <input
+                          type="file"
+                          id="profile-image-upload"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleImageUpload}
+                          disabled={uploadingImage}
+                        />
+                        <div className="flex gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => document.getElementById('profile-image-upload')?.click()}
+                            disabled={uploadingImage}
+                          >
+                            {uploadingImage ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Uploading...
+                              </>
+                            ) : (
+                              <>
                       <Upload className="w-4 h-4 mr-2" />
                       Upload Photo
+                              </>
+                            )}
+                          </Button>
+                          {profileImage && (
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={handleDeleteImage}
+                              disabled={uploadingImage}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Remove
                     </Button>
+                          )}
+                        </div>
                     <p className="text-sm text-gray-500">JPG, PNG up to 2MB</p>
                   </div>
                 </div>
+                  </>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -220,9 +483,22 @@ const Settings = () => {
                   </div>
                 </div>
 
-                <Button onClick={() => handleSave('Profile')} className="w-full md:w-auto">
-                  <Save className="w-4 h-4 mr-2" />
-                  Save Profile
+                <Button 
+                  onClick={() => handleSave('Profile')} 
+                  className="w-full md:w-auto"
+                  disabled={saving || loading}
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Profile
+                    </>
+                  )}
                 </Button>
               </CardContent>
             </Card>

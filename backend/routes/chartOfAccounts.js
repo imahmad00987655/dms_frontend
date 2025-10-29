@@ -7,131 +7,168 @@ const router = express.Router();
 // COA SEGMENTS ROUTES
 // ============================================================================
 
-// Get all segments
+// Get all CoA segments
 router.get('/segments', async (req, res) => {
   try {
     const [rows] = await pool.execute(
-      'SELECT * FROM coa_segments WHERE is_active = TRUE ORDER BY display_order'
+      'SELECT * FROM coa_segments WHERE status = "ACTIVE" ORDER BY created_at DESC'
     );
     res.json({ success: true, data: rows });
   } catch (error) {
-    console.error('Error fetching segments:', error);
+    console.error('Error fetching CoA segments:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Create a segment
+// Get a specific CoA by ID
+router.get('/segments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await pool.execute(
+      'SELECT * FROM coa_segments WHERE id = ?',
+      [id]
+    );
+    res.json({ success: true, data: rows[0] || null });
+  } catch (error) {
+    console.error('Error fetching CoA:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Create a new CoA with 5 segments
 router.post('/segments', async (req, res) => {
   try {
-    const { segment_name, segment_length, value_set_name, display_order } = req.body;
+    const { 
+      coa_name, 
+      description,
+      segment_1_name,
+      segment_1_value,
+      segment_2_name,
+      segment_2_value,
+      segment_3_name,
+      segment_3_value,
+      segment_4_name,
+      segment_4_value,
+      segment_5_name,
+      segment_5_value,
+      segment_length,
+      created_by
+    } = req.body;
     
     const [result] = await pool.execute(
-      'INSERT INTO coa_segments (segment_name, segment_length, value_set_name, display_order) VALUES (?, ?, ?, ?)',
-      [segment_name, segment_length, value_set_name || null, display_order || 0]
+      `INSERT INTO coa_segments (
+        coa_name, description,
+        segment_1_name, segment_1_value,
+        segment_2_name, segment_2_value,
+        segment_3_name, segment_3_value,
+        segment_4_name, segment_4_value,
+        segment_5_name, segment_5_value,
+        segment_length, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        coa_name,
+        description || null,
+        segment_1_name || null,
+        segment_1_value || '00000',
+        segment_2_name || null,
+        segment_2_value || '00000',
+        segment_3_name || null,
+        segment_3_value || '00000',
+        segment_4_name || null,
+        segment_4_value || '00000',
+        segment_5_name || null,
+        segment_5_value || '00000',
+        segment_length || 5,
+        created_by || 1
+      ]
     );
     
     res.json({ success: true, data: { id: result.insertId, ...req.body } });
   } catch (error) {
-    console.error('Error creating segment:', error);
+    console.error('Error creating CoA:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Update a segment
+// Update a CoA
 router.put('/segments/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { segment_name, segment_length, value_set_name, display_order } = req.body;
+    const { 
+      coa_name,
+      description,
+      segment_1_name,
+      segment_1_value,
+      segment_2_name,
+      segment_2_value,
+      segment_3_name,
+      segment_3_value,
+      segment_4_name,
+      segment_4_value,
+      segment_5_name,
+      segment_5_value,
+      segment_length,
+      status
+    } = req.body;
     
-    await pool.execute(
-      'UPDATE coa_segments SET segment_name = ?, segment_length = ?, value_set_name = ?, display_order = ? WHERE id = ?',
-      [segment_name, segment_length, value_set_name || null, display_order || 0, id]
-    );
+    // Convert undefined to null for all parameters to avoid SQL errors
+    // Build the base parameters array (without status and id)
+    const baseParams = [
+      coa_name ?? null,
+      description ?? null,
+      segment_1_name ?? null,
+      segment_1_value ?? '00000',
+      segment_2_name ?? null,
+      segment_2_value ?? '00000',
+      segment_3_name ?? null,
+      segment_3_value ?? '00000',
+      segment_4_name ?? null,
+      segment_4_value ?? '00000',
+      segment_5_name ?? null,
+      segment_5_value ?? '00000',
+      segment_length ?? 5
+    ];
     
-    res.json({ success: true, message: 'Segment updated successfully' });
+    // Build query - always include the base fields
+    let query = `UPDATE coa_segments SET 
+      coa_name = ?, description = ?,
+      segment_1_name = ?, segment_1_value = ?,
+      segment_2_name = ?, segment_2_value = ?,
+      segment_3_name = ?, segment_3_value = ?,
+      segment_4_name = ?, segment_4_value = ?,
+      segment_5_name = ?, segment_5_value = ?,
+      segment_length = ?`;
+    
+    // Build queryParams array starting with base params
+    const queryParams = [...baseParams];
+    
+    // Only update status if it's provided (not null and not undefined)
+    if (status !== null && status !== undefined) {
+      query += ', status = ?';
+      queryParams.push(status);
+    }
+    
+    // Always add id at the end
+    query += ' WHERE id = ?';
+    queryParams.push(id);
+    
+    await pool.execute(query, queryParams);
+    
+    res.json({ success: true, message: 'CoA updated successfully' });
   } catch (error) {
-    console.error('Error updating segment:', error);
+    console.error('Error updating CoA:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Delete a segment
+// Delete a CoA
 router.delete('/segments/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    await pool.execute('UPDATE coa_segments SET is_active = FALSE WHERE id = ?', [id]);
-    res.json({ success: true, message: 'Segment deleted successfully' });
+    await pool.execute('UPDATE coa_segments SET status = "INACTIVE" WHERE id = ?', [id]);
+    res.json({ success: true, message: 'CoA deleted successfully' });
   } catch (error) {
-    console.error('Error deleting segment:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ============================================================================
-// VALUE SETS ROUTES
-// ============================================================================
-
-// Get all value sets
-router.get('/value-sets', async (req, res) => {
-  try {
-    const [rows] = await pool.execute(
-      'SELECT * FROM coa_value_sets WHERE is_active = TRUE ORDER BY value_set_name'
-    );
-    res.json({ success: true, data: rows });
-  } catch (error) {
-    console.error('Error fetching value sets:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Get value set with values
-router.get('/value-sets/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const [valueSet] = await pool.execute('SELECT * FROM coa_value_sets WHERE id = ?', [id]);
-    const [values] = await pool.execute(
-      'SELECT * FROM coa_value_set_values WHERE value_set_id = ? AND is_active = TRUE ORDER BY display_order',
-      [id]
-    );
-    
-    res.json({ success: true, data: { ...valueSet[0], values } });
-  } catch (error) {
-    console.error('Error fetching value set:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Create a value set
-router.post('/value-sets', async (req, res) => {
-  try {
-    const { value_set_name, value_set_type, description } = req.body;
-    
-    const [result] = await pool.execute(
-      'INSERT INTO coa_value_sets (value_set_name, value_set_type, description) VALUES (?, ?, ?)',
-      [value_set_name, value_set_type, description || null]
-    );
-    
-    res.json({ success: true, data: { id: result.insertId, ...req.body } });
-  } catch (error) {
-    console.error('Error creating value set:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Add value to value set
-router.post('/value-sets/:id/values', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { value_code, value_description, display_order } = req.body;
-    
-    const [result] = await pool.execute(
-      'INSERT INTO coa_value_set_values (value_set_id, value_code, value_description, display_order) VALUES (?, ?, ?, ?)',
-      [id, value_code, value_description, display_order || 0]
-    );
-    
-    res.json({ success: true, data: { id: result.insertId, ...req.body } });
-  } catch (error) {
-    console.error('Error adding value:', error);
+    console.error('Error deleting CoA:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -187,8 +224,8 @@ router.post('/instances', async (req, res) => {
     if (segments && segments.length > 0) {
       for (const segment of segments) {
         await pool.execute(
-          'INSERT INTO coa_segment_instances (coa_instance_id, segment_name, segment_length, value_set_name, display_order) VALUES (?, ?, ?, ?, ?)',
-          [coaInstanceId, segment.name, segment.length, segment.valueSet || null, segment.display_order || 0]
+          'INSERT INTO coa_segment_instances (coa_instance_id, segment_name, segment_length, display_order) VALUES (?, ?, ?, ?)',
+          [coaInstanceId, segment.name, segment.length, segment.display_order || 0]
         );
       }
     }
