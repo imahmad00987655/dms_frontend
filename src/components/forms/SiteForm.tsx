@@ -10,7 +10,7 @@ interface PartySite {
   site_id: number;
   party_id: number;
   site_name: string;
-  site_type: 'INVOICING' | 'PURCHASING' | 'BOTH';
+  site_type: 'BILL_TO' | 'SHIP_TO' | 'BOTH';
   address_line1?: string;
   address_line2?: string;
   address_line3?: string;
@@ -197,8 +197,8 @@ export const SiteForm: React.FC<SiteFormProps> = ({ partyId, customerId, supplie
                 {customerId ? (
                   // Customer sites only support these types
                   <>
-                    <SelectItem value="INVOICING">Invoicing</SelectItem>
-                    <SelectItem value="PURCHASING">Purchasing</SelectItem>
+                    <SelectItem value="BILL_TO">Bill To</SelectItem>
+                    <SelectItem value="SHIP_TO">Ship To</SelectItem>
                     <SelectItem value="BOTH">Both</SelectItem>
                   </>
                 ) : supplierId ? (
@@ -211,8 +211,8 @@ export const SiteForm: React.FC<SiteFormProps> = ({ partyId, customerId, supplie
                 ) : (
                   // Party sites support all types
                   <>
-                    <SelectItem value="INVOICING">Invoicing</SelectItem>
-                    <SelectItem value="PURCHASING">Purchasing</SelectItem>
+                    <SelectItem value="BILL_TO">Bill To</SelectItem>
+                    <SelectItem value="SHIP_TO">Ship To</SelectItem>
                     <SelectItem value="BOTH">Both</SelectItem>
                   </>
                 )}

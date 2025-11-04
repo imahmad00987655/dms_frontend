@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { 
   User, 
   Bell, 
@@ -46,6 +47,7 @@ const Settings = () => {
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
   const [settings, setSettings] = useState({
     // Profile settings
     firstName: "",
@@ -138,11 +140,12 @@ const Settings = () => {
       } else {
         throw new Error(result.error || 'No user data received');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching profile:', error);
+      const message = error instanceof Error ? error.message : 'Failed to load profile data';
       toast({
         title: "Error",
-        description: error.message || "Failed to load profile data",
+        description: message,
         variant: "destructive"
       });
     } finally {
@@ -308,7 +311,7 @@ const Settings = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-blue-50 p-4 md:p-6">
-      <div className="max-w-6xl mx-auto space-y-6">
+      <div className="w-full space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -324,32 +327,32 @@ const Settings = () => {
 
         {/* Settings Tabs */}
         <Tabs defaultValue="profile" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-7 bg-white/70 backdrop-blur-sm">
-            <TabsTrigger value="profile" className="flex items-center gap-2">
+          <TabsList className="w-full bg-white/70 backdrop-blur-sm overflow-x-auto inline-flex items-center justify-between gap-8 md:gap-16">
+            <TabsTrigger value="profile" className="flex items-center gap-2 whitespace-nowrap">
               <User className="w-4 h-4" />
               <span className="hidden sm:inline">Profile</span>
             </TabsTrigger>
-            <TabsTrigger value="notifications" className="flex items-center gap-2">
+            <TabsTrigger value="notifications" className="flex items-center gap-2 whitespace-nowrap">
               <Bell className="w-4 h-4" />
               <span className="hidden sm:inline">Notifications</span>
             </TabsTrigger>
-            <TabsTrigger value="security" className="flex items-center gap-2">
+            <TabsTrigger value="security" className="flex items-center gap-2 whitespace-nowrap">
               <Shield className="w-4 h-4" />
               <span className="hidden sm:inline">Security</span>
             </TabsTrigger>
-            <TabsTrigger value="system" className="flex items-center gap-2">
+            <TabsTrigger value="system" className="flex items-center gap-2 whitespace-nowrap">
               <Database className="w-4 h-4" />
               <span className="hidden sm:inline">System</span>
             </TabsTrigger>
-            <TabsTrigger value="company-setup" className="flex items-center gap-2">
+            <TabsTrigger value="company-setup" className="flex items-center gap-2 whitespace-nowrap">
               <Building className="w-4 h-4" />
               <span className="hidden sm:inline">Company Setup</span>
             </TabsTrigger>
-            <TabsTrigger value="tax-setup" className="flex items-center gap-2">
+            <TabsTrigger value="tax-setup" className="flex items-center gap-2 whitespace-nowrap">
               <Receipt className="w-4 h-4" />
               <span className="hidden sm:inline">Tax Setup</span>
             </TabsTrigger>
-            <TabsTrigger value="users" className="flex items-center gap-2">
+            <TabsTrigger value="users" className="flex items-center gap-2 whitespace-nowrap">
               <Users className="w-4 h-4" />
               <span className="hidden sm:inline">Users</span>
             </TabsTrigger>
@@ -375,7 +378,10 @@ const Settings = () => {
                 ) : (
                   <>
                 <div className="flex items-center gap-6">
-                  <Avatar className="w-20 h-20">
+                  <Avatar 
+                    className="w-20 h-20 cursor-pointer"
+                    onClick={() => profileImage && setIsImagePreviewOpen(true)}
+                  >
                         <AvatarImage src={profileImage || ""} />
                     <AvatarFallback className="text-lg bg-gradient-to-br from-blue-500 to-purple-600 text-white">
                           {settings.firstName[0] || ''}{settings.lastName[0] || ''}
@@ -424,6 +430,18 @@ const Settings = () => {
                     <p className="text-sm text-gray-500">JPG, PNG up to 2MB</p>
                   </div>
                 </div>
+                {/* Image preview dialog */}
+                <Dialog open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>
+                  <DialogContent className="max-w-md p-0 overflow-hidden">
+                    {profileImage ? (
+                      <img
+                        src={profileImage}
+                        alt="Profile preview"
+                        className="w-full h-auto max-h-[60vh] object-contain"
+                      />
+                    ) : null}
+                  </DialogContent>
+                </Dialog>
                   </>
                 )}
 

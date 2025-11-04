@@ -130,17 +130,25 @@ CREATE TABLE IF NOT EXISTS coa_instances (
     INDEX idx_created_by (created_by)
 );
 
--- CoA Segment Instances (Mapping segments to a CoA) - Deprecated, using coa_segments now
-CREATE TABLE IF NOT EXISTS coa_segment_instances (
+-- Segments table
+CREATE TABLE IF NOT EXISTS segments (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    coa_instance_id INT NOT NULL,
-    segment_name VARCHAR(100) NOT NULL,
-    segment_length INT NOT NULL,
-    display_order INT DEFAULT 0,
-    FOREIGN KEY (coa_instance_id) REFERENCES coa_instances(id) ON DELETE CASCADE,
-    INDEX idx_coa_instance_id (coa_instance_id),
+    segment_id VARCHAR(50) UNIQUE NOT NULL,
+    segment_code VARCHAR(50) UNIQUE NOT NULL,
+    segment_name VARCHAR(255) NOT NULL,
+    segment_type ENUM('ASSETS', 'LIABILITIES', 'EQUITY', 'REVENUE', 'EXPENSE') NOT NULL,
+    segment_use TEXT NULL,
+    status ENUM('ACTIVE', 'INACTIVE') DEFAULT 'ACTIVE',
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_segment_id (segment_id),
+    INDEX idx_segment_code (segment_code),
     INDEX idx_segment_name (segment_name),
-    INDEX idx_display_order (display_order)
+    INDEX idx_segment_type (segment_type),
+    INDEX idx_status (status),
+    INDEX idx_created_by (created_by)
 );
 
 -- Ledger Configurations
@@ -167,24 +175,53 @@ CREATE TABLE IF NOT EXISTS ledger_configurations (
     INDEX idx_created_by (created_by)
 );
 
--- Header Assignments (Module assignments to ledgers)
-CREATE TABLE IF NOT EXISTS ledger_header_assignments (
+-- Header Assignments (CoA headers assigned to ledgers and modules)
+CREATE TABLE IF NOT EXISTS header_assignments (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    header_id VARCHAR(50) UNIQUE NOT NULL,
     header_name VARCHAR(255) NOT NULL,
-    ledger_id INT NOT NULL,
-    module_type ENUM('AR', 'AP', 'PO', 'INVENTORY', 'ASSETS', 'GL', 'ALL') NOT NULL,
+    coa_instance_id INT NOT NULL,
     validation_rules JSON,
     is_active BOOLEAN DEFAULT TRUE,
     created_by INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (ledger_id) REFERENCES ledger_configurations(id) ON DELETE CASCADE,
+    FOREIGN KEY (coa_instance_id) REFERENCES coa_instances(id) ON DELETE RESTRICT,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    INDEX idx_header_id (header_id),
     INDEX idx_header_name (header_name),
-    INDEX idx_ledger_id (ledger_id),
-    INDEX idx_module_type (module_type),
+    INDEX idx_coa_instance_id (coa_instance_id),
     INDEX idx_is_active (is_active),
     INDEX idx_created_by (created_by)
+);
+
+-- Junction table for header-to-ledger assignments (many-to-many)
+CREATE TABLE IF NOT EXISTS header_ledger_assignments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    header_assignment_id INT NOT NULL,
+    ledger_id INT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (header_assignment_id) REFERENCES header_assignments(id) ON DELETE CASCADE,
+    FOREIGN KEY (ledger_id) REFERENCES ledger_configurations(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_header_ledger (header_assignment_id, ledger_id),
+    INDEX idx_header_assignment_id (header_assignment_id),
+    INDEX idx_ledger_id (ledger_id),
+    INDEX idx_is_active (is_active)
+);
+
+-- Junction table for header-to-module assignments (many-to-many)
+CREATE TABLE IF NOT EXISTS header_module_assignments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    header_assignment_id INT NOT NULL,
+    module_type ENUM('AR', 'AP', 'JV', 'PO', 'INVENTORY', 'ASSETS', 'GL') NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (header_assignment_id) REFERENCES header_assignments(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_header_module (header_assignment_id, module_type),
+    INDEX idx_header_assignment_id (header_assignment_id),
+    INDEX idx_module_type (module_type),
+    INDEX idx_is_active (is_active)
 );
 
 -- Account Combinations (Actual account codes based on segments)
@@ -1651,6 +1688,18 @@ CREATE TABLE IF NOT EXISTS tax_settings (
 -- INSERT DEFAULT CHART OF ACCOUNTS DATA
 -- ============================================================================
 
+-- Insert default segments (accounting categories)
+INSERT INTO segments (segment_id, segment_code, segment_name, segment_type, segment_use, status, created_by) VALUES
+('SEG-ASSETS-001', 'ASSETS', 'Assets', 'ASSETS', 'Use for all asset accounts including current assets, fixed assets, and intangible assets', 'ACTIVE', 1),
+('SEG-LIAB-001', 'LIABILITIES', 'Liabilities', 'LIABILITIES', 'Use for all liability accounts including current liabilities, long-term debt, and other obligations', 'ACTIVE', 1),
+('SEG-EQUITY-001', 'EQUITY', 'Equity', 'EQUITY', 'Use for equity accounts including capital, retained earnings, and reserves', 'ACTIVE', 1),
+('SEG-REV-001', 'REVENUE', 'Revenue', 'REVENUE', 'Use for all revenue and income accounts from primary business operations and other sources', 'ACTIVE', 1),
+('SEG-EXP-001', 'EXPENSE', 'Expenses', 'EXPENSE', 'Use for all expense accounts including operating expenses, cost of goods sold, and other costs', 'ACTIVE', 1)
+ON DUPLICATE KEY UPDATE 
+    segment_name=VALUES(segment_name), 
+    segment_use=VALUES(segment_use),
+    status=VALUES(status);
+
 -- Example: Insert a sample CoA with 5 segments
 -- INSERT INTO coa_segments (coa_name, description, segment_1_name, segment_1_value, segment_2_name, segment_2_value, segment_3_name, segment_3_value, segment_4_name, segment_4_value, segment_5_name, segment_5_value, segment_length, status, created_by) 
 -- VALUES ('Sample CoA', 'Sample Chart of Accounts', 'Company', '00001', 'Product', '00002', 'Cost Center', '00003', 'Account', '00004', 'Project', '00005', 5, 'ACTIVE', 1)
@@ -1664,13 +1713,28 @@ LIMIT 1
 ON DUPLICATE KEY UPDATE accounting_method=VALUES(accounting_method), ar_ap_enabled=VALUES(ar_ap_enabled);
 
 -- Insert sample header assignments
-INSERT INTO ledger_header_assignments (header_name, ledger_id, module_type, validation_rules, is_active, created_by)
-SELECT 'AR Invoice Headers', lc.id, 'AR', '{"require_account": true, "require_approval": true}', TRUE, 1
-FROM ledger_configurations lc WHERE lc.ledger_name = 'Primary Distribution Ledger'
+INSERT INTO header_assignments (header_id, header_name, coa_instance_id, validation_rules, is_active, created_by)
+SELECT 'HDR-001', 'Primary AR Headers', ci.id, '{"enforce_segment_qualifiers": true, "allow_dynamic_inserts": false}', TRUE, 1
+FROM coa_instances ci WHERE ci.coa_code = 'DIST_COA'
+LIMIT 1
+ON DUPLICATE KEY UPDATE header_name=VALUES(header_name);
+
+-- Insert sample header-ledger assignments
+INSERT INTO header_ledger_assignments (header_assignment_id, ledger_id, is_active)
+SELECT ha.id, lc.id, TRUE
+FROM header_assignments ha
+CROSS JOIN ledger_configurations lc 
+WHERE ha.header_id = 'HDR-001' AND lc.ledger_name = 'Primary Distribution Ledger'
+ON DUPLICATE KEY UPDATE is_active=VALUES(is_active);
+
+-- Insert sample header-module assignments
+INSERT INTO header_module_assignments (header_assignment_id, module_type, is_active)
+SELECT ha.id, 'AR', TRUE
+FROM header_assignments ha WHERE ha.header_id = 'HDR-001'
 UNION ALL
-SELECT 'AP Invoice Headers', lc.id, 'AP', '{"require_account": true, "require_approval": true}', TRUE, 1
-FROM ledger_configurations lc WHERE lc.ledger_name = 'Primary Distribution Ledger'
+SELECT ha.id, 'AP', TRUE
+FROM header_assignments ha WHERE ha.header_id = 'HDR-001'
 UNION ALL
-SELECT 'PO Headers', lc.id, 'PO', '{"require_distribution": true}', TRUE, 1
-FROM ledger_configurations lc WHERE lc.ledger_name = 'Primary Distribution Ledger'
-ON DUPLICATE KEY UPDATE validation_rules=VALUES(validation_rules);
+SELECT ha.id, 'JV', TRUE
+FROM header_assignments ha WHERE ha.header_id = 'HDR-001'
+ON DUPLICATE KEY UPDATE is_active=VALUES(is_active);

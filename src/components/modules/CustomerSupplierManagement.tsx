@@ -43,7 +43,7 @@ interface PartySite {
   site_id: number;
   party_id: number;
   site_name: string;
-  site_type: 'INVOICING' | 'PURCHASING' | 'BOTH';
+  site_type: 'BILL_TO' | 'SHIP_TO' | 'BOTH';
   address_line1?: string;
   address_line2?: string;
   address_line3?: string;
@@ -450,7 +450,10 @@ export const CustomerSupplierManagement: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={() => setShowPartyForm(true)} variant="outline">
+          <Button onClick={() => {
+            setPartyToEdit(null);
+            setShowPartyForm(true);
+          }} variant="outline">
             <Plus className="w-4 h-4 mr-2" />
             New Party
           </Button>
@@ -564,16 +567,20 @@ export const CustomerSupplierManagement: React.FC = () => {
                         <TableCell>{party.industry || '-'}</TableCell>
                         <TableCell>
                           <div className="flex gap-1">
-                            {party.site_count > 0 && (
-                              <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                                S: {party.site_count}
-                              </Badge>
-                            )}
-                            {party.customer_profile_count > 0 && (
-                              <Badge variant="outline" className="bg-green-50 text-green-700">
-                                C: {party.customer_profile_count}
-                              </Badge>
-                            )}
+                            {(() => {
+                              const customerCount = party.customer_profile_count ?? customers.filter(c => c.party_id === party.party_id).length;
+                              const supplierCount = party.supplier_profile_count ?? suppliers.filter(s => s.party_id === party.party_id).length;
+                              return (
+                                <>
+                                  {customerCount > 0 && (
+                                    <Badge variant="outline" className="bg-green-50 text-green-700">C: {customerCount}</Badge>
+                                  )}
+                                  {supplierCount > 0 && (
+                                    <Badge variant="outline" className="bg-purple-50 text-purple-700">S: {supplierCount}</Badge>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
                         </TableCell>
                         <TableCell>{getStatusBadge(party.status)}</TableCell>
@@ -785,6 +792,7 @@ export const CustomerSupplierManagement: React.FC = () => {
                   <CardTitle className="flex items-center justify-between">
                     Addresses & Sites
                     <Button size="sm" onClick={() => {
+                      setSelectedSite(null);
                       setSiteFormContext('party');
                       setShowSiteForm(true);
                     }}>
@@ -851,7 +859,10 @@ export const CustomerSupplierManagement: React.FC = () => {
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
                     Contact Information
-                    <Button size="sm" onClick={() => setShowContactForm(true)}>
+                    <Button size="sm" onClick={() => {
+                      setSelectedContact(null);
+                      setShowContactForm(true);
+                    }}>
                       <Plus className="w-4 h-4 mr-2" />
                       Add Contact
                     </Button>
@@ -1001,6 +1012,7 @@ export const CustomerSupplierManagement: React.FC = () => {
                   <CardTitle className="flex items-center justify-between">
                     Addresses & Sites
                     <Button size="sm" onClick={() => {
+                      setSelectedSite(null);
                       setSiteFormContext('customer');
                       setShowSiteForm(true);
                     }}>
@@ -1173,6 +1185,7 @@ export const CustomerSupplierManagement: React.FC = () => {
                   <CardTitle className="flex items-center justify-between">
                     Addresses & Sites
                     <Button size="sm" onClick={() => {
+                      setSelectedSite(null);
                       setSiteFormContext('supplier');
                       setShowSiteForm(true);
                     }}>
@@ -1249,6 +1262,7 @@ export const CustomerSupplierManagement: React.FC = () => {
             <DialogTitle>{partyToEdit ? 'Edit Party' : 'Create New Party (Customer/Supplier)'}</DialogTitle>
           </DialogHeader>
           <PartyForm 
+            key={partyToEdit ? `edit-party-${partyToEdit.party_id}` : 'create-party'}
             onClose={() => {
               setShowPartyForm(false);
               setPartyToEdit(null);
@@ -1276,6 +1290,7 @@ export const CustomerSupplierManagement: React.FC = () => {
           </DialogHeader>
           <div className="max-h-[70vh] overflow-y-auto">
             <SiteForm 
+              key={selectedSite ? `edit-site-${selectedSite.site_id}` : `create-site-${siteFormContext}-${selectedParty?.party_id || selectedCustomer?.profile_id || selectedSupplier?.supplier_id || 'new'}`}
               partyId={siteFormContext === 'party' ? selectedParty?.party_id : undefined}
               customerId={siteFormContext === 'customer' ? selectedCustomer?.profile_id : undefined}
               supplierId={siteFormContext === 'supplier' ? selectedSupplier?.supplier_id : undefined}
@@ -1320,6 +1335,7 @@ export const CustomerSupplierManagement: React.FC = () => {
             </p>
           </DialogHeader>
           <ContactForm 
+            key={selectedContact ? `edit-contact-${selectedContact.contact_point_id}` : `create-contact-${selectedParty?.party_id || 'new'}`}
             partyId={selectedParty?.party_id}
             contactToEdit={selectedContact}
             onClose={() => {

@@ -4,6 +4,23 @@ import pool from '../config/database.js';
 const router = express.Router();
 
 // ============================================================================
+// SEGMENTS ROUTES (Accounting Segment Types)
+// ============================================================================
+
+// Get all accounting segments (ASSETS, LIABILITIES, etc.)
+router.get('/accounting-segments', async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM segments WHERE status = "ACTIVE" ORDER BY segment_type'
+    );
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error fetching accounting segments:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================================================
 // COA SEGMENTS ROUTES
 // ============================================================================
 
@@ -174,6 +191,156 @@ router.delete('/segments/:id', async (req, res) => {
 });
 
 // ============================================================================
+// COA SEGMENT INSTANCES ROUTES
+// ============================================================================
+
+// Create a segment instance
+router.post('/segments/instances', async (req, res) => {
+  try {
+    const { 
+      segment_id, 
+      segment_code, 
+      segment_name, 
+      segment_type, 
+      segment_use,
+      status,
+      created_by 
+    } = req.body;
+    
+    // Validate required fields
+    if (!segment_id || !segment_code || !segment_name || !segment_type) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'segment_id, segment_code, segment_name, and segment_type are required' 
+      });
+    }
+    
+    const [result] = await pool.execute(
+      `INSERT INTO segments (
+        segment_id, 
+        segment_code, 
+        segment_name, 
+        segment_type, 
+        segment_use,
+        status,
+        created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        segment_id,
+        segment_code,
+        segment_name,
+        segment_type,
+        segment_use || null,
+        status || 'ACTIVE',
+        created_by || 1
+      ]
+    );
+    
+    res.json({ 
+      success: true, 
+      data: { 
+        id: result.insertId, 
+        segment_id,
+        segment_code,
+        segment_name,
+        segment_type,
+        segment_use,
+        status: status || 'ACTIVE'
+      } 
+    });
+  } catch (error) {
+    console.error('Error creating segment instance:', error);
+    
+    // Handle duplicate entry error
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'A segment with this ID or code already exists' 
+      });
+    }
+    
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get all segment instances
+router.get('/segments/instances', async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT * FROM segments WHERE status = "ACTIVE" ORDER BY created_at DESC'
+    );
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error fetching segment instances:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get a specific segment instance by ID
+router.get('/segments/instances/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await pool.execute(
+      'SELECT * FROM segments WHERE id = ?',
+      [id]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Segment instance not found' 
+      });
+    }
+    
+    res.json({ success: true, data: rows[0] });
+  } catch (error) {
+    console.error('Error fetching segment instance:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update a segment instance
+router.put('/segments/instances/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { 
+      segment_code, 
+      segment_name, 
+      segment_type, 
+      segment_use,
+      status
+    } = req.body;
+    
+    await pool.execute(
+      `UPDATE segments 
+       SET segment_code = ?, segment_name = ?, segment_type = ?, segment_use = ?, status = ?
+       WHERE id = ?`,
+      [segment_code, segment_name, segment_type, segment_use || null, status || 'ACTIVE', id]
+    );
+    
+    res.json({ success: true, message: 'Segment instance updated successfully' });
+  } catch (error) {
+    console.error('Error updating segment instance:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Delete a segment instance (soft delete)
+router.delete('/segments/instances/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute(
+      'UPDATE segments SET status = "INACTIVE" WHERE id = ?',
+      [id]
+    );
+    res.json({ success: true, message: 'Segment instance deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting segment instance:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================================================
 // COA INSTANCES ROUTES
 // ============================================================================
 
@@ -325,20 +492,262 @@ router.get('/ledgers/:ledgerId/header-assignments', async (req, res) => {
   }
 });
 
-// Create a header assignment
-router.post('/ledgers/:ledgerId/header-assignments', async (req, res) => {
+// ============================================================================
+// HEADER ASSIGNMENTS ROUTES
+// ============================================================================
+
+// Get all header assignments with their relationships
+router.get('/header-assignments', async (req, res) => {
   try {
-    const { ledgerId } = req.params;
-    const { header_name, module_type, validation_rules } = req.body;
+    const [headerAssignments] = await pool.execute(`
+      SELECT 
+        ha.id,
+        ha.header_id,
+        ha.header_name,
+        ha.coa_instance_id,
+        ci.coa_code,
+        ci.coa_name,
+        ha.validation_rules,
+        ha.is_active,
+        ha.created_at,
+        ha.updated_at
+      FROM header_assignments ha
+      LEFT JOIN coa_instances ci ON ha.coa_instance_id = ci.id
+      WHERE ha.is_active = TRUE
+      ORDER BY ha.created_at DESC
+    `);
     
-    const [result] = await pool.execute(
-      'INSERT INTO ledger_header_assignments (ledger_id, header_name, module_type, validation_rules, created_by) VALUES (?, ?, ?, ?, ?)',
-      [ledgerId, header_name, module_type, JSON.stringify(validation_rules || {}), req.body.created_by || 1]
+    // Get ledgers and modules for each header assignment
+    for (let assignment of headerAssignments) {
+      // Get assigned ledgers
+      const [ledgers] = await pool.execute(`
+        SELECT l.id, l.ledger_name
+        FROM header_ledger_assignments hla
+        JOIN ledger_configurations l ON hla.ledger_id = l.id
+        WHERE hla.header_assignment_id = ? AND hla.is_active = TRUE
+      `, [assignment.id]);
+      assignment.ledgers = ledgers;
+      
+      // Get assigned modules
+      const [modules] = await pool.execute(`
+        SELECT module_type
+        FROM header_module_assignments
+        WHERE header_assignment_id = ? AND is_active = TRUE
+      `, [assignment.id]);
+      assignment.modules = modules.map(m => m.module_type);
+    }
+    
+    res.json({ success: true, data: headerAssignments });
+  } catch (error) {
+    console.error('Error fetching header assignments:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get a specific header assignment
+router.get('/header-assignments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const [headerAssignments] = await pool.execute(`
+      SELECT 
+        ha.*,
+        ci.coa_code,
+        ci.coa_name
+      FROM header_assignments ha
+      LEFT JOIN coa_instances ci ON ha.coa_instance_id = ci.id
+      WHERE ha.id = ?
+    `, [id]);
+    
+    if (headerAssignments.length === 0) {
+      return res.status(404).json({ success: false, error: 'Header assignment not found' });
+    }
+    
+    const assignment = headerAssignments[0];
+    
+    // Get assigned ledgers
+    const [ledgers] = await pool.execute(`
+      SELECT l.id, l.ledger_name
+      FROM header_ledger_assignments hla
+      JOIN ledger_configurations l ON hla.ledger_id = l.id
+      WHERE hla.header_assignment_id = ? AND hla.is_active = TRUE
+    `, [id]);
+    assignment.ledgers = ledgers;
+    
+    // Get assigned modules
+    const [modules] = await pool.execute(`
+      SELECT module_type
+      FROM header_module_assignments
+      WHERE header_assignment_id = ? AND is_active = TRUE
+    `, [id]);
+    assignment.modules = modules.map(m => m.module_type);
+    
+    res.json({ success: true, data: assignment });
+  } catch (error) {
+    console.error('Error fetching header assignment:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Create a header assignment
+router.post('/header-assignments', async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    await connection.beginTransaction();
+    
+    const { 
+      header_id, 
+      header_name, 
+      coa_instance_id, 
+      ledger_ids = [], 
+      module_types = [], 
+      validation_rules = {},
+      created_by = 1 
+    } = req.body;
+    
+    // Validate required fields
+    if (!header_id || !header_name || !coa_instance_id) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'header_id, header_name, and coa_instance_id are required' 
+      });
+    }
+    
+    // Insert main header assignment
+    const [result] = await connection.execute(
+      `INSERT INTO header_assignments (header_id, header_name, coa_instance_id, validation_rules, created_by) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [header_id, header_name, coa_instance_id, JSON.stringify(validation_rules), created_by]
     );
     
-    res.json({ success: true, data: { id: result.insertId, ...req.body } });
+    const headerAssignmentId = result.insertId;
+    
+    // Insert ledger assignments
+    if (ledger_ids && ledger_ids.length > 0) {
+      for (const ledgerId of ledger_ids) {
+        await connection.execute(
+          'INSERT INTO header_ledger_assignments (header_assignment_id, ledger_id) VALUES (?, ?)',
+          [headerAssignmentId, ledgerId]
+        );
+      }
+    }
+    
+    // Insert module assignments
+    if (module_types && module_types.length > 0) {
+      for (const moduleType of module_types) {
+        await connection.execute(
+          'INSERT INTO header_module_assignments (header_assignment_id, module_type) VALUES (?, ?)',
+          [headerAssignmentId, moduleType]
+        );
+      }
+    }
+    
+    await connection.commit();
+    
+    res.json({ 
+      success: true, 
+      data: { 
+        id: headerAssignmentId, 
+        header_id, 
+        header_name,
+        coa_instance_id,
+        ledger_ids,
+        module_types,
+        validation_rules
+      } 
+    });
   } catch (error) {
+    await connection.rollback();
     console.error('Error creating header assignment:', error);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// Update a header assignment
+router.put('/header-assignments/:id', async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    await connection.beginTransaction();
+    
+    const { id } = req.params;
+    const { 
+      header_name, 
+      coa_instance_id, 
+      ledger_ids = [], 
+      module_types = [], 
+      validation_rules = {},
+      is_active = true
+    } = req.body;
+    
+    // Update main header assignment
+    await connection.execute(
+      `UPDATE header_assignments 
+       SET header_name = ?, coa_instance_id = ?, validation_rules = ?, is_active = ?
+       WHERE id = ?`,
+      [header_name, coa_instance_id, JSON.stringify(validation_rules), is_active, id]
+    );
+    
+    // Delete existing ledger assignments
+    await connection.execute(
+      'DELETE FROM header_ledger_assignments WHERE header_assignment_id = ?',
+      [id]
+    );
+    
+    // Insert new ledger assignments
+    if (ledger_ids && ledger_ids.length > 0) {
+      for (const ledgerId of ledger_ids) {
+        await connection.execute(
+          'INSERT INTO header_ledger_assignments (header_assignment_id, ledger_id) VALUES (?, ?)',
+          [id, ledgerId]
+        );
+      }
+    }
+    
+    // Delete existing module assignments
+    await connection.execute(
+      'DELETE FROM header_module_assignments WHERE header_assignment_id = ?',
+      [id]
+    );
+    
+    // Insert new module assignments
+    if (module_types && module_types.length > 0) {
+      for (const moduleType of module_types) {
+        await connection.execute(
+          'INSERT INTO header_module_assignments (header_assignment_id, module_type) VALUES (?, ?)',
+          [id, moduleType]
+        );
+      }
+    }
+    
+    await connection.commit();
+    
+    res.json({ success: true, data: { id, ...req.body } });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error updating header assignment:', error);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// Delete a header assignment
+router.delete('/header-assignments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    await pool.execute(
+      'UPDATE header_assignments SET is_active = FALSE WHERE id = ?',
+      [id]
+    );
+    
+    res.json({ success: true, message: 'Header assignment deactivated successfully' });
+  } catch (error) {
+    console.error('Error deleting header assignment:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

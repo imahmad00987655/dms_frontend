@@ -20,7 +20,8 @@ import {
   Plus, 
   X,
   Eye,
-  Edit
+  Edit,
+  Loader2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -29,6 +30,16 @@ interface Segment {
   name: string;
   value: string;
   length: number;
+}
+
+interface AccountingSegment {
+  id: number;
+  segment_id: string;
+  segment_code: string;
+  segment_name: string;
+  segment_type: string;
+  segment_use: string;
+  status: string;
 }
 
 interface CoAInstance {
@@ -65,8 +76,6 @@ interface HeaderAssignment {
 
 interface NewSegment {
   name: string;
-  value: string;
-  length: string | number;
 }
 
 interface CoAData {
@@ -103,12 +112,42 @@ const ChartOfAccountSetup = () => {
   const [showViewModal, setShowViewModal] = useState(false);
   const [editingCoA, setEditingCoA] = useState<CoAData | null>(null);
   
+  // State for available accounting segments
+  const [availableSegments, setAvailableSegments] = useState<AccountingSegment[]>([]);
+  
   // State for new segment
   const [newSegment, setNewSegment] = useState<NewSegment>({
-    name: "",
-    value: "",
-    length: "5"
+    name: ""
   });
+
+  // State for Create Segment Dialog
+  const [showSegmentForm, setShowSegmentForm] = useState(false);
+  const [segmentFormData, setSegmentFormData] = useState({
+    id: "",
+    code: "",
+    name: "",
+    type: "",
+    description: ""
+  });
+
+  // Fetch available accounting segments
+  const fetchAccountingSegments = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/chart-of-accounts/accounting-segments`);
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        setAvailableSegments(result.data);
+      }
+    } catch (error) {
+      console.error('Error fetching accounting segments:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch accounting segments",
+        variant: "destructive"
+      });
+    }
+  };
 
   // Fetch all CoAs from API
   const fetchCoAs = async () => {
@@ -211,9 +250,11 @@ const ChartOfAccountSetup = () => {
   
   useEffect(() => {
     const loadData = async () => {
+      await fetchAccountingSegments();
       await fetchCoAs();
       await fetchCoAInstances();
       await fetchLedgers();
+      await fetchHeaderAssignments();
     };
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -243,8 +284,6 @@ const ChartOfAccountSetup = () => {
   });
 
   const handleAddSegment = async () => {
-    const lengthValue = typeof newSegment.length === 'string' ? parseInt(newSegment.length) : newSegment.length;
-    
     // Check if already 5 segments
     if (segments.length >= 5) {
       toast({
@@ -255,19 +294,32 @@ const ChartOfAccountSetup = () => {
       return;
     }
     
-    if (!newSegment.name || !newSegment.value) {
+    if (!newSegment.name) {
       toast({
         title: "Error",
-        description: "Please enter both segment name and value",
+        description: "Please select a segment",
         variant: "destructive"
       });
       return;
     }
-    
-    if (lengthValue <= 0) {
+
+    // Check if segment is already added
+    if (segments.some(seg => seg.name === newSegment.name)) {
       toast({
         title: "Error",
-        description: "Please enter a valid length",
+        description: "This segment has already been added",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Find the selected segment from available segments to get its actual values
+    const selectedSegment = availableSegments.find(seg => seg.segment_name === newSegment.name);
+    
+    if (!selectedSegment) {
+      toast({
+        title: "Error",
+        description: "Selected segment not found",
         variant: "destructive"
       });
       return;
@@ -276,13 +328,13 @@ const ChartOfAccountSetup = () => {
     // Add segment locally without API call (we'll save all at once)
     const newSegmentData: Segment = {
       id: Date.now().toString(),
-      name: newSegment.name,
-      value: newSegment.value,
-      length: lengthValue
+      name: selectedSegment.segment_name,
+      value: selectedSegment.segment_code, // Use actual segment code from database
+      length: 5 // Fixed length
     };
     
     setSegments([...segments, newSegmentData]);
-    setNewSegment({ name: "", value: "", length: "5" });
+    setNewSegment({ name: "" });
     
     toast({
       title: "Success",
@@ -296,6 +348,67 @@ const ChartOfAccountSetup = () => {
       title: "Success",
       description: "Segment removed successfully",
     });
+  };
+
+  const handleCreateSegment = async () => {
+    // Validate required fields
+    if (!segmentFormData.id || !segmentFormData.code || !segmentFormData.name || !segmentFormData.type) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields (ID, Code, Name, and Type)",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const requestData = {
+        segment_id: segmentFormData.id,
+        segment_code: segmentFormData.code,
+        segment_name: segmentFormData.name,
+        segment_type: segmentFormData.type,
+        segment_use: segmentFormData.description || null,
+        status: 'ACTIVE',
+        created_by: 1 // TODO: Replace with actual user ID from auth context
+      };
+
+      const response = await fetch(`${API_BASE_URL}/chart-of-accounts/segments/instances`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        toast({
+          title: "Success",
+          description: "Segment created successfully",
+        });
+        
+        // Reset form and close dialog
+        setShowSegmentForm(false);
+        setSegmentFormData({
+          id: "",
+          code: "",
+          name: "",
+          type: "",
+          description: ""
+        });
+
+        // Optionally refresh data if needed
+        // await fetchCoAs();
+      } else {
+        throw new Error(result.error || 'Failed to create segment');
+      }
+    } catch (error) {
+      console.error('Error creating segment:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to create segment",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleViewCoA = (coa: CoAData) => {
@@ -534,23 +647,125 @@ const ChartOfAccountSetup = () => {
     }
   };
 
-  const handleCreateHeaderAssignment = () => {
-    if (newHeaderAssignment.headerId && newHeaderAssignment.coaInstance) {
-      const assignment: HeaderAssignment = {
-        id: Date.now().toString(),
-        ...newHeaderAssignment
-      };
-      setHeaderAssignments([...headerAssignments, assignment]);
-      setNewHeaderAssignment({
-        headerId: "",
-        coaInstance: "",
-        assignedLedgers: [],
-        financialModules: [],
-        validationRules: []
-      });
+  // Fetch header assignments from API
+  const fetchHeaderAssignments = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/chart-of-accounts/header-assignments`);
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        // Map backend data to frontend structure
+        const mappedAssignments = result.data.map((ha: {
+          id: number;
+          header_id: string;
+          coa_name?: string;
+          coa_code?: string;
+          ledgers?: { ledger_name: string }[];
+          modules?: string[];
+          validation_rules?: Record<string, boolean>;
+        }) => ({
+          id: ha.id.toString(),
+          headerId: ha.header_id,
+          coaInstance: ha.coa_name || ha.coa_code,
+          assignedLedgers: ha.ledgers?.map((l: { ledger_name: string }) => l.ledger_name) || [],
+          financialModules: ha.modules || [],
+          validationRules: Object.keys(ha.validation_rules || {}).filter(key => ha.validation_rules?.[key])
+        }));
+        setHeaderAssignments(mappedAssignments);
+      }
+    } catch (error) {
+      console.error('Error fetching header assignments:', error);
+    }
+  };
+
+  const handleCreateHeaderAssignment = async () => {
+    if (!newHeaderAssignment.headerId || !newHeaderAssignment.coaInstance) {
       toast({
-        title: "Success",
-        description: "Header assignment created successfully",
+        title: "Error",
+        description: "Please fill in required fields (Header ID and CoA Instance)",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      // Find the CoA instance ID
+      const selectedCoA = coaInstances.find(
+        (instance) => instance.coa_name === newHeaderAssignment.coaInstance
+      );
+
+      if (!selectedCoA) {
+        toast({
+          title: "Error",
+          description: "Selected CoA Instance not found",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Map module names to backend format
+      const moduleMapping: { [key: string]: string } = {
+        "Receivables (AR)": "AR",
+        "Payables (AP)": "AP",
+        "Journal Vouchers (JV)": "JV"
+      };
+
+      const module_types = newHeaderAssignment.financialModules.map(
+        (m) => moduleMapping[m] || m
+      );
+
+      // Map validation rules to backend format
+      const validation_rules = {
+        enforce_segment_qualifiers: newHeaderAssignment.validationRules.includes("Enforce Segment Qualifiers"),
+        allow_dynamic_inserts: newHeaderAssignment.validationRules.includes("Allow Dynamic Inserts")
+      };
+
+      // Get ledger IDs
+      const ledger_ids = newHeaderAssignment.assignedLedgers.map((ledgerName) => {
+        const ledger = ledgers.find((l) => l.ledger_name === ledgerName);
+        return ledger?.id;
+      }).filter((id): id is number => id !== undefined);
+
+      const response = await fetch(`${API_BASE_URL}/chart-of-accounts/header-assignments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          header_id: newHeaderAssignment.headerId,
+          header_name: `Header ${newHeaderAssignment.headerId}`,
+          coa_instance_id: selectedCoA.id,
+          ledger_ids,
+          module_types,
+          validation_rules,
+          created_by: 1
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        await fetchHeaderAssignments(); // Refresh the list
+        setNewHeaderAssignment({
+          headerId: "",
+          coaInstance: "",
+          assignedLedgers: [],
+          financialModules: [],
+          validationRules: []
+        });
+        toast({
+          title: "Success",
+          description: "Header assignment created successfully",
+        });
+      } else {
+        throw new Error(result.error || 'Failed to create header assignment');
+      }
+    } catch (error) {
+      console.error('Error creating header assignment:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to create header assignment",
+        variant: "destructive"
       });
     }
   };
@@ -578,7 +793,7 @@ const ChartOfAccountSetup = () => {
               <div className="space-y-6">
                 {/* Create Chart of Account Button */}
                 {!showForm && (
-                  <div className="flex justify-end">
+                  <div className="flex justify-end gap-3">
                     <Button 
                       onClick={() => {
                         setEditingCoA(null);
@@ -591,6 +806,22 @@ const ChartOfAccountSetup = () => {
                     >
                       <Plus className="w-4 h-4 mr-2" />
                       Create Chart of Account
+                    </Button>
+                    <Button 
+                      onClick={() => {
+                        setSegmentFormData({
+                          id: "",
+                          code: "",
+                          name: "",
+                          type: "",
+                          description: ""
+                        });
+                        setShowSegmentForm(true);
+                      }} 
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create Segment
                     </Button>
                   </div>
                 )}
@@ -652,7 +883,7 @@ const ChartOfAccountSetup = () => {
                     {segments.map((segment) => (
                       <div key={segment.id} className="flex items-center gap-2">
                         <Badge variant="secondary" className="bg-green-100 text-green-800">
-                          {segment.name}: {segment.value} (Length: {segment.length})
+                          {segment.name}: {segment.value}
                         </Badge>
                         <Button
                           variant="ghost"
@@ -675,45 +906,37 @@ const ChartOfAccountSetup = () => {
                   {/* Add New Segment */}
                   <div className="bg-gray-50 p-4 rounded-lg space-y-4">
                     <h4 className="font-medium">Add New Segment</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div>
-                        <Label htmlFor="segment-name">Segment Name *</Label>
-                        <Input
-                          id="segment-name"
+                    <div className="flex gap-4 items-end">
+                      <div className="flex-1">
+                        <Label htmlFor="segment-name">Select Segment *</Label>
+                        <Select
                           value={newSegment.name}
-                          onChange={(e) => setNewSegment({ ...newSegment, name: e.target.value })}
-                          placeholder="e.g., Company"
-                        />
+                          onValueChange={(value) => setNewSegment({ name: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a segment type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableSegments.map((segment) => (
+                              <SelectItem 
+                                key={segment.segment_id} 
+                                value={segment.segment_name}
+                                disabled={segments.some(s => s.name === segment.segment_name)}
+                              >
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{segment.segment_name}</span>
+                                  <span className="text-xs text-gray-500">{segment.segment_type}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div>
-                        <Label htmlFor="segment-value">Segment Value *</Label>
-                        <Input
-                          id="segment-value"
-                          value={newSegment.value}
-                          onChange={(e) => {
-                            // Limit input to 5 digits
-                            const value = e.target.value.replace(/\D/g, '').slice(0, 5);
-                            setNewSegment({ ...newSegment, value });
-                          }}
-                          placeholder="e.g., 00001"
-                          maxLength={5}
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="length">Length (Fixed: 5)</Label>
-                        <Input
-                          id="length"
-                          type="number"
-                          value="5"
-                          disabled
-                          className="bg-gray-100 cursor-not-allowed"
-                        />
-                      </div>
-                      <div className="flex items-end">
                         <Button 
                           onClick={handleAddSegment} 
                           className="bg-green-600 hover:bg-green-700"
-                          disabled={segments.length >= 5}
+                          disabled={segments.length >= 5 || !newSegment.name}
                         >
                           <Plus className="w-4 h-4 mr-2" />
                           Add
@@ -721,7 +944,7 @@ const ChartOfAccountSetup = () => {
                       </div>
                     </div>
                     <p className="text-sm text-gray-600">
-                      * Required fields. Maximum 5 segments allowed. Remaining slots will be filled with "None" when creating the Chart of Accounts.
+                      * Select accounting segments to include in your Chart of Accounts. Maximum 5 segments allowed.
                     </p>
                   </div>
                 </div>
@@ -743,6 +966,121 @@ const ChartOfAccountSetup = () => {
                   <Button onClick={handleCreateCoA} className="bg-green-600 hover:bg-green-700">
                         {editingCoA ? 'Update Chart of Accounts' : 'Create Chart of Accounts'}
                   </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Create Segment Dialog */}
+                <Dialog open={showSegmentForm} onOpenChange={(open) => {
+                  if (!open) {
+                    setShowSegmentForm(false);
+                    setSegmentFormData({
+                      id: "",
+                      code: "",
+                      name: "",
+                      type: "",
+                      description: ""
+                    });
+                  } else {
+                    setShowSegmentForm(true);
+                  }
+                }}>
+                  <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                      <DialogTitle>Create Segment</DialogTitle>
+                      <DialogDescription>
+                        Define a new segment with its properties
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="segment-id">ID *</Label>
+                          <Input
+                            id="segment-id"
+                            value={segmentFormData.id}
+                            onChange={(e) => setSegmentFormData({ ...segmentFormData, id: e.target.value })}
+                            placeholder="Enter segment ID"
+                            className="mt-1"
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor="segment-code">Code *</Label>
+                          <Input
+                            id="segment-code"
+                            value={segmentFormData.code}
+                            onChange={(e) => setSegmentFormData({ ...segmentFormData, code: e.target.value })}
+                            placeholder="Enter segment code"
+                            className="mt-1"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="segment-name-field">Name *</Label>
+                        <Input
+                          id="segment-name-field"
+                          value={segmentFormData.name}
+                          onChange={(e) => setSegmentFormData({ ...segmentFormData, name: e.target.value })}
+                          placeholder="Enter segment name"
+                          className="mt-1"
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="segment-type">Type *</Label>
+                        <Select 
+                          value={segmentFormData.type} 
+                          onValueChange={(value) => setSegmentFormData({ ...segmentFormData, type: value })}
+                        >
+                          <SelectTrigger id="segment-type" className="mt-1">
+                            <SelectValue placeholder="Select segment type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ASSETS">Assets</SelectItem>
+                            <SelectItem value="LIABILITIES">Liabilities</SelectItem>
+                            <SelectItem value="EQUITY">Equity</SelectItem>
+                            <SelectItem value="REVENUE">Revenue</SelectItem>
+                            <SelectItem value="EXPENSE">Expense</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="segment-description">Use</Label>
+                        <textarea
+                          id="segment-description"
+                          value={segmentFormData.description}
+                          onChange={(e) => setSegmentFormData({ ...segmentFormData, description: e.target.value })}
+                          placeholder="Enter use for this segment"
+                          className="mt-1 w-full p-3 border border-gray-300 rounded-md resize-none"
+                          rows={4}
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => {
+                          setShowSegmentForm(false);
+                          setSegmentFormData({
+                            id: "",
+                            code: "",
+                            name: "",
+                            type: "",
+                            description: ""
+                          });
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        onClick={handleCreateSegment}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        Create Segment
+                      </Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
@@ -1202,7 +1540,7 @@ const ChartOfAccountSetup = () => {
                       <div className="flex flex-wrap gap-2">
                                       {instance.segments.map((segment, idx) => (
                                         <Badge key={idx} variant="secondary" className="bg-green-100 text-green-800">
-                                          {segment.name} (Length: {segment.length})
+                                          {segment.name}: {segment.value}
                           </Badge>
                         ))}
                       </div>
@@ -1288,9 +1626,43 @@ const ChartOfAccountSetup = () => {
                 <div>
                   <h4 className="font-medium mb-3">Assign to Ledgers</h4>
                   <div className="space-y-2">
-                    <p className="text-sm text-gray-600">No ledgers available. Please create ledgers first.</p>
+                    {ledgersLoading ? (
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Loading ledgers...</span>
                       </div>
-                    </div>
+                    ) : ledgers.length === 0 ? (
+                      <p className="text-sm text-gray-600">No ledgers available. Please create ledgers first.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {ledgers.map((ledger) => (
+                          <div key={ledger.id} className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`ledger-${ledger.id}`}
+                              checked={newHeaderAssignment.assignedLedgers.includes(ledger.ledger_name)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setNewHeaderAssignment({
+                                    ...newHeaderAssignment,
+                                    assignedLedgers: [...newHeaderAssignment.assignedLedgers, ledger.ledger_name]
+                                  });
+                                } else {
+                                  setNewHeaderAssignment({
+                                    ...newHeaderAssignment,
+                                    assignedLedgers: newHeaderAssignment.assignedLedgers.filter(l => l !== ledger.ledger_name)
+                                  });
+                                }
+                              }}
+                            />
+                            <Label htmlFor={`ledger-${ledger.id}`} className="cursor-pointer">
+                              {ledger.ledger_name} ({ledger.ledger_type})
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
 
                     <div>
                       <h4 className="font-medium mb-3">Financial Modules</h4>

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,35 +13,91 @@ import { useToast } from "@/hooks/use-toast";
 
 interface Ledger {
   id: number;
-  name: string;
-  type: 'Primary' | 'Secondary' | 'Subsidiary';
+  ledger_name: string;
+  ledger_type: 'PRIMARY' | 'SECONDARY' | 'SUBSIDIARY';
   currency: string;
-  coa: string;
-  method: 'Accrual' | 'Cash';
-  arApEnabled: boolean;
-  status: 'Active' | 'Inactive';
+  coa_instance_id: number;
+  coa_code?: string;
+  coa_name?: string;
+  accounting_method: 'ACCRUAL' | 'CASH';
+  ar_ap_enabled: boolean;
+  status: 'ACTIVE' | 'INACTIVE';
   created_at: string;
 }
 
+interface CoAInstance {
+  id: number;
+  coa_code: string;
+  coa_name: string;
+}
+
+const API_BASE_URL = 'http://localhost:5000/api';
 
 const LedgerConfigurations = () => {
   const { toast } = useToast();
   
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
-
+  const [coaInstances, setCoaInstances] = useState<CoAInstance[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [fetchingData, setFetchingData] = useState(true);
 
   const [ledgerForm, setLedgerForm] = useState({
     name: "",
-    type: "Primary" as 'Primary' | 'Secondary' | 'Subsidiary',
+    type: "PRIMARY" as 'PRIMARY' | 'SECONDARY' | 'SUBSIDIARY',
     currency: "USD",
-    coa: "",
-    method: "Accrual" as 'Accrual' | 'Cash'
+    coa_instance_id: "",
+    method: "ACCRUAL" as 'ACCRUAL' | 'CASH',
+    ar_ap_enabled: true
   });
 
+  // Fetch ledgers from API
+  const fetchLedgers = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/chart-of-accounts/ledgers`);
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        setLedgers(result.data);
+      }
+    } catch (error) {
+      console.error('Error fetching ledgers:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch ledgers",
+        variant: "destructive"
+      });
+    } finally {
+      setFetchingData(false);
+    }
+  };
+
+  // Fetch CoA instances from API
+  const fetchCoAInstances = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/chart-of-accounts/instances`);
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        setCoaInstances(result.data);
+      }
+    } catch (error) {
+      console.error('Error fetching CoA instances:', error);
+    }
+  };
+
+  // Load data on component mount
+  useEffect(() => {
+    const loadData = async () => {
+      await fetchLedgers();
+      await fetchCoAInstances();
+    };
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleCreateLedger = async () => {
-    if (!ledgerForm.name) {
+    if (!ledgerForm.name || !ledgerForm.coa_instance_id) {
       toast({
         title: "Error",
         description: "Please fill in all required fields",
@@ -52,26 +108,41 @@ const LedgerConfigurations = () => {
 
     setLoading(true);
     try {
-      const newLedger: Ledger = {
-        id: Date.now(),
-        ...ledgerForm,
-        arApEnabled: true,
-        status: "Active",
-        created_at: new Date().toISOString()
-      };
-      
-      setLedgers([...ledgers, newLedger]);
-      setShowCreateModal(false);
-      resetLedgerForm();
-      
-      toast({
-        title: "Success",
-        description: "Ledger created successfully",
+      const response = await fetch(`${API_BASE_URL}/chart-of-accounts/ledgers`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ledger_name: ledgerForm.name,
+          ledger_type: ledgerForm.type,
+          currency: ledgerForm.currency,
+          coa_instance_id: parseInt(ledgerForm.coa_instance_id),
+          accounting_method: ledgerForm.method,
+          ar_ap_enabled: ledgerForm.ar_ap_enabled,
+          created_by: 1
+        }),
       });
+
+      const result = await response.json();
+
+      if (result.success) {
+        await fetchLedgers(); // Refresh the list
+        setShowCreateModal(false);
+        resetLedgerForm();
+        
+        toast({
+          title: "Success",
+          description: "Ledger created successfully",
+        });
+      } else {
+        throw new Error(result.error || 'Failed to create ledger');
+      }
     } catch (error) {
+      console.error('Error creating ledger:', error);
       toast({
         title: "Error",
-        description: "Failed to create ledger. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to create ledger. Please try again.",
         variant: "destructive"
       });
     } finally {
@@ -82,24 +153,32 @@ const LedgerConfigurations = () => {
   const resetLedgerForm = () => {
     setLedgerForm({
       name: "",
-      type: "Primary",
+      type: "PRIMARY",
       currency: "USD",
-      coa: "",
-      method: "Accrual"
+      coa_instance_id: "",
+      method: "ACCRUAL",
+      ar_ap_enabled: true
     });
   };
 
   const getTypeColor = (type: string) => {
     switch (type) {
+      case 'PRIMARY':
       case 'Primary':
         return 'bg-green-100 text-green-800';
+      case 'SECONDARY':
       case 'Secondary':
         return 'bg-blue-100 text-blue-800';
+      case 'SUBSIDIARY':
       case 'Subsidiary':
         return 'bg-purple-100 text-purple-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
+  };
+
+  const formatTypeDisplay = (type: string) => {
+    return type.charAt(0) + type.slice(1).toLowerCase();
   };
 
 
@@ -134,24 +213,46 @@ const LedgerConfigurations = () => {
                 </tr>
               </thead>
               <tbody>
-                {ledgers.map((ledger) => (
-                  <tr key={ledger.id} className="border-b border-gray-100 hover:bg-gray-50/50">
-                    <td className="py-3 px-4 text-sm font-medium text-gray-900">{ledger.name}</td>
-                    <td className="py-3 px-4">
-                      <Badge variant="secondary" className={getTypeColor(ledger.type)}>
-                        {ledger.type}
-                      </Badge>
-                    </td>
-                    <td className="py-3 px-4 text-sm text-gray-600">{ledger.currency}</td>
-                    <td className="py-3 px-4 text-sm text-gray-600">{ledger.coa}</td>
-                    <td className="py-3 px-4 text-sm text-gray-600">{ledger.method}</td>
-                    <td className="py-3 px-4">
-                      <Badge variant="secondary" className="bg-green-100 text-green-800">
-                        Enabled
-                      </Badge>
+                {fetchingData ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center">
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-400" />
+                      <p className="text-gray-500 mt-2">Loading ledgers...</p>
                     </td>
                   </tr>
-                ))}
+                ) : ledgers.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-gray-500">
+                      No ledgers found. Create your first ledger to get started.
+                    </td>
+                  </tr>
+                ) : (
+                  ledgers.map((ledger) => (
+                    <tr key={ledger.id} className="border-b border-gray-100 hover:bg-gray-50/50">
+                      <td className="py-3 px-4 text-sm font-medium text-gray-900">{ledger.ledger_name}</td>
+                      <td className="py-3 px-4">
+                        <Badge variant="secondary" className={getTypeColor(ledger.ledger_type)}>
+                          {formatTypeDisplay(ledger.ledger_type)}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4 text-sm text-gray-600">{ledger.currency}</td>
+                      <td className="py-3 px-4 text-sm text-gray-600">
+                        {ledger.coa_name || ledger.coa_code || 'N/A'}
+                      </td>
+                      <td className="py-3 px-4 text-sm text-gray-600">
+                        {formatTypeDisplay(ledger.accounting_method)}
+                      </td>
+                      <td className="py-3 px-4">
+                        <Badge 
+                          variant="secondary" 
+                          className={ledger.ar_ap_enabled ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}
+                        >
+                          {ledger.ar_ap_enabled ? 'Enabled' : 'Disabled'}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -189,14 +290,14 @@ const LedgerConfigurations = () => {
 
               <div>
                 <Label htmlFor="type">Type</Label>
-                <Select value={ledgerForm.type} onValueChange={(value: 'Primary' | 'Secondary' | 'Subsidiary') => setLedgerForm({ ...ledgerForm, type: value })}>
+                <Select value={ledgerForm.type} onValueChange={(value: 'PRIMARY' | 'SECONDARY' | 'SUBSIDIARY') => setLedgerForm({ ...ledgerForm, type: value })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Primary">Primary</SelectItem>
-                    <SelectItem value="Secondary">Secondary</SelectItem>
-                    <SelectItem value="Subsidiary">Subsidiary</SelectItem>
+                    <SelectItem value="PRIMARY">Primary</SelectItem>
+                    <SelectItem value="SECONDARY">Secondary</SelectItem>
+                    <SelectItem value="SUBSIDIARY">Subsidiary</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -208,35 +309,47 @@ const LedgerConfigurations = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="USD">USD</SelectItem>
-                    <SelectItem value="EUR">EUR</SelectItem>
-                    <SelectItem value="GBP">GBP</SelectItem>
-                    <SelectItem value="CAD">CAD</SelectItem>
+                    <SelectItem value="USD">USD - US Dollar</SelectItem>
+                    <SelectItem value="EUR">EUR - Euro</SelectItem>
+                    <SelectItem value="GBP">GBP - British Pound</SelectItem>
+                    <SelectItem value="CAD">CAD - Canadian Dollar</SelectItem>
+                    <SelectItem value="JPY">JPY - Japanese Yen</SelectItem>
+                    <SelectItem value="AUD">AUD - Australian Dollar</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div>
-                <Label htmlFor="coa">Chart of Accounts</Label>
-                <Select value={ledgerForm.coa} onValueChange={(value) => setLedgerForm({ ...ledgerForm, coa: value })}>
+                <Label htmlFor="coa">Chart of Accounts *</Label>
+                <Select value={ledgerForm.coa_instance_id} onValueChange={(value) => setLedgerForm({ ...ledgerForm, coa_instance_id: value })}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select CoA" />
+                    <SelectValue placeholder="Select CoA Instance" />
                   </SelectTrigger>
                   <SelectContent>
-                    {/* CoA options will be populated from API */}
+                    {coaInstances.length === 0 ? (
+                      <div className="p-2 text-sm text-gray-500 text-center">
+                        No CoA instances available. Please create one first.
+                      </div>
+                    ) : (
+                      coaInstances.map((coa) => (
+                        <SelectItem key={coa.id} value={coa.id.toString()}>
+                          {coa.coa_name} ({coa.coa_code})
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
 
               <div>
                 <Label htmlFor="method">Accounting Method</Label>
-                <Select value={ledgerForm.method} onValueChange={(value: 'Accrual' | 'Cash') => setLedgerForm({ ...ledgerForm, method: value })}>
+                <Select value={ledgerForm.method} onValueChange={(value: 'ACCRUAL' | 'CASH') => setLedgerForm({ ...ledgerForm, method: value })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Accrual">Accrual</SelectItem>
-                    <SelectItem value="Cash">Cash</SelectItem>
+                    <SelectItem value="ACCRUAL">Accrual</SelectItem>
+                    <SelectItem value="CASH">Cash</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
