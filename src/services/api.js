@@ -129,6 +129,14 @@ class ApiService {
     return this.request('/journal-entries/accounts/list');
   }
 
+  async getCoaSegments() {
+    return this.request('/chart-of-accounts/segments/instances');
+  }
+
+  async getAccountingSegments() {
+    return this.request('/chart-of-accounts/accounting-segments');
+  }
+
   // Inventory Items
   async getInventoryItems() {
     return this.request('/inventory-items');

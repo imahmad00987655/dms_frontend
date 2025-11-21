@@ -28,7 +28,8 @@ import {
   Globe,
   FileText,
   Activity,
-  Loader2
+  Loader2,
+  ArrowLeft
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import LocationForm from "@/components/forms/LocationForm";
@@ -40,6 +41,8 @@ interface Company {
   name: string;
   legal_name: string;
   registration_number: string;
+  strn?: string;
+  ntn?: string;
   country: string;
   currency: string;
   fiscal_year_start: string;
@@ -59,9 +62,6 @@ interface CompanyLocation {
   state?: string;
   postal_code?: string;
   country?: string;
-  phone?: string;
-  email?: string;
-  contact_person?: string;
   is_primary: boolean;
   is_active: boolean;
   status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
@@ -91,10 +91,15 @@ const CompanySetup = () => {
   const [companyLocations, setCompanyLocations] = useState<CompanyLocation[]>([]);
   const [loadingLocations, setLoadingLocations] = useState(false);
 
+  // Full screen module view state
+  const [activeModule, setActiveModule] = useState<'companies' | 'chart-of-account' | 'ledger' | null>(null);
+
   const [formData, setFormData] = useState({
     name: "",
     legal_name: "",
     registration_number: "",
+    strn: "",
+    ntn: "",
     country: "",
     currency: "",
     fiscal_year_start: "",
@@ -176,6 +181,23 @@ const CompanySetup = () => {
     }
   };
 
+  // Helper function to format date for display (DD/MM/YYYY)
+  const formatDateForDisplay = (dateString: string | null | undefined) => {
+    if (!dateString || dateString === 'null' || dateString === 'undefined') return 'Not specified';
+    
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Not specified';
+      
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}/${month}/${year}`;
+    } catch (e) {
+      return 'Not specified';
+    }
+  };
+
   // Helper function to format date for HTML date input (YYYY-MM-DD)
   const formatDateForInput = (dateString: string | null | undefined) => {
     if (!dateString || dateString === 'null' || dateString === 'undefined') return "";
@@ -186,10 +208,20 @@ const CompanySetup = () => {
     }
     
     // Handle ISO timestamp format (e.g., "2025-10-09T19:00:00.000Z")
+    // Convert UTC datetime to local date
     if (dateString.includes('T')) {
-      const datePart = dateString.split('T')[0];
-      if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
-        return datePart;
+      try {
+        const date = new Date(dateString);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      } catch (e) {
+        // If parsing fails, try simple split as fallback
+        const datePart = dateString.split('T')[0];
+        if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+          return datePart;
+        }
       }
     }
     
@@ -217,6 +249,8 @@ const CompanySetup = () => {
       name: "",
       legal_name: "",
       registration_number: "",
+      strn: "",
+      ntn: "",
       country: "",
       currency: "",
       fiscal_year_start: "",
@@ -234,6 +268,8 @@ const CompanySetup = () => {
       name: company.name,
       legal_name: company.legal_name,
       registration_number: company.registration_number,
+      strn: company.strn || "",
+      ntn: company.ntn || "",
       country: company.country || "",
       currency: company.currency || "",
       fiscal_year_start: formatDateForInput(company.fiscal_year_start),
@@ -444,108 +480,33 @@ const CompanySetup = () => {
 
   const activeCompanies = companies.filter(c => c.status === 'Active').length;
   const totalCompanies = companies.length;
+  const uniqueCountries = new Set(companies.map(c => c.country)).size;
+  const uniqueCurrencies = new Set(companies.map(c => c.currency)).size;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-blue-50 p-4 md:p-6">
       <div className="w-full space-y-6">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">
-              Company Setup
-            </h1>
-            <p className="text-gray-600 mt-1">Manage distributor companies and legal entities</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Badge variant="outline" className="bg-white/70">
-              {activeCompanies} Active Companies
-            </Badge>
-            <Button 
-              onClick={() => {
-                setEditingCompany(null);
-                resetForm();
-                setShowCreateModal(true);
-              }}
-              className="bg-green-600 hover:bg-green-700 text-white"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Create New Company
-            </Button>
-          </div>
-        </div>
+        {/* Full Screen Module View */}
+        {activeModule && (
+          <div className="space-y-6">
+            {/* Back Button Header */}
+            <div className="flex items-center gap-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveModule(null)}
+                className="flex items-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back
+              </Button>
+            </div>
 
-        {/* Dashboard Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <Card className="bg-white/70 backdrop-blur-sm border-gray-200/50 shadow-lg">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Total Companies</p>
-                  <p className="text-2xl font-bold text-gray-900">{totalCompanies}</p>
-                </div>
-                <Building2 className="w-8 h-8 text-blue-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-white/70 backdrop-blur-sm border-gray-200/50 shadow-lg">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Active Companies</p>
-                  <p className="text-2xl font-bold text-green-600">{activeCompanies}</p>
-                </div>
-                <Activity className="w-8 h-8 text-green-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-white/70 backdrop-blur-sm border-gray-200/50 shadow-lg">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Countries</p>
-                  <p className="text-2xl font-bold text-purple-600">{new Set(companies.map(c => c.country)).size}</p>
-                </div>
-                <Globe className="w-8 h-8 text-purple-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-white/70 backdrop-blur-sm border-gray-200/50 shadow-lg">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Currencies</p>
-                  <p className="text-2xl font-bold text-orange-600">{new Set(companies.map(c => c.currency)).size}</p>
-                </div>
-                <DollarSign className="w-8 h-8 text-orange-600" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Company Setup Tabs */}
-        <Tabs defaultValue="companies" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-3 bg-white/70 backdrop-blur-sm">
-            <TabsTrigger value="companies" className="flex items-center gap-2">
-              <Building2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Companies</span>
-            </TabsTrigger>
-            <TabsTrigger value="chart-of-account" className="flex items-center gap-2">
-              <FileText className="w-4 h-4" />
-              <span className="hidden sm:inline">Chart of Account</span>
-            </TabsTrigger>
-            <TabsTrigger value="users" className="flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              <span className="hidden sm:inline">Ledger Configurations</span>
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Companies Tab */}
-          <TabsContent value="companies" className="space-y-6">
-            <Card className="bg-white/70 backdrop-blur-sm border-gray-200/50 shadow-lg">
-              <CardHeader>
+            {/* Module Content */}
+            {activeModule === 'companies' && (
+              <div className="space-y-6">
+                <Card className="bg-white/70 backdrop-blur-sm border-gray-200/50 shadow-lg">
+                  <CardHeader>
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
                     <CardTitle className="flex items-center gap-2">
@@ -556,7 +517,7 @@ const CompanySetup = () => {
                       Manage all distributor companies and their information
                     </CardDescription>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <div className="relative">
                       <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                       <Input
@@ -576,6 +537,17 @@ const CompanySetup = () => {
                         <SelectItem value="Inactive">Inactive</SelectItem>
                       </SelectContent>
                     </Select>
+                    <Button 
+                      onClick={() => {
+                        setEditingCompany(null);
+                        resetForm();
+                        setShowCreateModal(true);
+                      }}
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create New Company
+                    </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -678,18 +650,81 @@ const CompanySetup = () => {
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
+              </div>
+            )}
 
-          {/* Chart of Account Tab */}
-          <TabsContent value="chart-of-account" className="space-y-6">
-            <ChartOfAccountSetup />
-          </TabsContent>
+            {activeModule === 'chart-of-account' && (
+              <ChartOfAccountSetup />
+            )}
 
-          {/* Ledger Configurations Tab */}
-          <TabsContent value="users" className="space-y-6">
-            <LedgerConfigurations />
-          </TabsContent>
-        </Tabs>
+            {activeModule === 'ledger' && (
+              <LedgerConfigurations />
+            )}
+          </div>
+        )}
+
+        {/* Tab Navigation (shown when no module is active) */}
+        {!activeModule && (
+          <div className="space-y-6">
+            <Card className="bg-white/70 backdrop-blur-sm border-gray-200/50 shadow-lg">
+              <CardHeader>
+                <CardTitle className="text-2xl font-bold text-gray-900">Company Setup</CardTitle>
+                <CardDescription>Manage distributor companies and legal entities</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Companies Card */}
+                  <div
+                    onClick={() => setActiveModule('companies')}
+                    className="p-6 border rounded-lg cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-all duration-200 group"
+                  >
+                    <div className="flex flex-col items-center text-center gap-4">
+                      <div className="p-4 bg-blue-100 rounded-full group-hover:bg-blue-200 transition-colors">
+                        <Building2 className="w-8 h-8 text-blue-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2">Companies</h3>
+                        <p className="text-sm text-gray-600">Manage distributor companies and their information</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Chart of Account Card */}
+                  <div
+                    onClick={() => setActiveModule('chart-of-account')}
+                    className="p-6 border rounded-lg cursor-pointer hover:bg-green-50 hover:border-green-300 transition-all duration-200 group"
+                  >
+                    <div className="flex flex-col items-center text-center gap-4">
+                      <div className="p-4 bg-green-100 rounded-full group-hover:bg-green-200 transition-colors">
+                        <FileText className="w-8 h-8 text-green-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2">Chart of Account</h3>
+                        <p className="text-sm text-gray-600">Configure chart of accounts and segments</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Ledger Configurations Card */}
+                  <div
+                    onClick={() => setActiveModule('ledger')}
+                    className="p-6 border rounded-lg cursor-pointer hover:bg-purple-50 hover:border-purple-300 transition-all duration-200 group"
+                  >
+                    <div className="flex flex-col items-center text-center gap-4">
+                      <div className="p-4 bg-purple-100 rounded-full group-hover:bg-purple-200 transition-colors">
+                        <Users className="w-8 h-8 text-purple-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-2">Ledger Configurations</h3>
+                        <p className="text-sm text-gray-600">Manage accounting ledgers and flows</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Create/Edit Company Modal */}
         <Dialog open={showCreateModal} onOpenChange={(open) => {
@@ -742,6 +777,40 @@ const CompanySetup = () => {
                     placeholder="Enter registration number"
                     disabled={loading}
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="strn">STRN (Sales Tax Registration No)</Label>
+                  <Input
+                    id="strn"
+                    value={formData.strn}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^0-9-]/g, '');
+                      if (value.length <= 20) {
+                        setFormData({ ...formData, strn: value });
+                      }
+                    }}
+                    placeholder="e.g., 1234567-8 (digits and hyphens only)"
+                    disabled={loading}
+                    maxLength={20}
+                  />
+                  <p className="text-xs text-gray-500">Maximum 20 digits (hyphens allowed)</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ntn">NTN (National Tax No)</Label>
+                  <Input
+                    id="ntn"
+                    value={formData.ntn}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^0-9-]/g, '');
+                      if (value.length <= 15) {
+                        setFormData({ ...formData, ntn: value });
+                      }
+                    }}
+                    placeholder="e.g., 1234567-8 (digits and hyphens only)"
+                    disabled={loading}
+                    maxLength={15}
+                  />
+                  <p className="text-xs text-gray-500">Maximum 15 digits (hyphens allowed)</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="country">Country</Label>
@@ -890,6 +959,20 @@ const CompanySetup = () => {
                     </div>
 
                     <div>
+                      <Label className="text-sm font-medium text-gray-600">STRN</Label>
+                      <div className="mt-1 p-3 bg-gray-50 rounded-md border">
+                        <span className="text-gray-900">{viewingCompany.strn || 'Not specified'}</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium text-gray-600">NTN</Label>
+                      <div className="mt-1 p-3 bg-gray-50 rounded-md border">
+                        <span className="text-gray-900">{viewingCompany.ntn || 'Not specified'}</span>
+                      </div>
+                    </div>
+
+                    <div>
                       <Label className="text-sm font-medium text-gray-600">Status</Label>
                       <div className="mt-1 p-3 bg-gray-50 rounded-md border">
                         <Badge 
@@ -929,7 +1012,7 @@ const CompanySetup = () => {
                       <div className="mt-1 p-3 bg-gray-50 rounded-md border">
                         <span className="text-gray-900 flex items-center gap-2">
                           <Calendar className="w-4 h-4" />
-                          {viewingCompany.fiscal_year_start || 'Not specified'}
+                          {formatDateForDisplay(viewingCompany.fiscal_year_start)}
                         </span>
                       </div>
                     </div>
@@ -1014,19 +1097,7 @@ const CompanySetup = () => {
                             {location.country && (
                               <p>{location.country}</p>
                             )}
-                            {location.phone && (
-                              <p className="flex items-center gap-2">
-                                <FileText className="w-3 h-3" />
-                                {location.phone}
-                              </p>
-                            )}
                           </div>
-                          
-                          {location.contact_person && (
-                            <div className="mt-3 text-xs text-gray-500">
-                              Contact: {location.contact_person}
-                            </div>
-                          )}
                         </div>
                       ))}
                     </div>

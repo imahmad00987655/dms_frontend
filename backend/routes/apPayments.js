@@ -32,16 +32,23 @@ router.get('/', async (req, res) => {
             params.push(payment_date_to);
         }
         
+        // Use subquery to avoid GROUP BY issues and handle missing columns gracefully
         const [rows] = await pool.execute(`
             SELECT p.*, 
                    s.supplier_name, s.supplier_number,
-                   COUNT(pa.application_id) as application_count,
-                   SUM(pa.applied_amount) as total_applied
+                   COALESCE((
+                       SELECT COUNT(*) 
+                       FROM ap_payment_applications pa 
+                       WHERE pa.payment_id = p.payment_id AND pa.status = 'ACTIVE'
+                   ), 0) as application_count,
+                   COALESCE((
+                       SELECT SUM(pa.applied_amount) 
+                       FROM ap_payment_applications pa 
+                       WHERE pa.payment_id = p.payment_id AND pa.status = 'ACTIVE'
+                   ), 0) as total_applied
             FROM ap_payments p
             LEFT JOIN ap_suppliers s ON p.supplier_id = s.supplier_id
-            LEFT JOIN ap_payment_applications pa ON p.payment_id = pa.payment_id AND pa.status = 'ACTIVE'
             ${whereClause}
-            GROUP BY p.payment_id
             ORDER BY p.payment_date DESC, p.payment_id DESC
         `, params);
         

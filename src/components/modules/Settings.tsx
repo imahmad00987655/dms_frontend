@@ -30,8 +30,10 @@ import {
   Settings as SettingsIcon,
   Crown,
   Receipt,
-  Loader2
+  Loader2,
+  ArrowLeft
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import TaxTypesForm from "@/components/forms/TaxTypesForm";
 import TaxRegimeForm from "@/components/forms/TaxRegimeForm";
@@ -39,6 +41,66 @@ import TaxRatesForm from "@/components/forms/TaxRatesForm";
 import CompanySetup from "./CompanySetup";
 
 const API_BASE_URL = 'http://localhost:5000/api';
+
+type SettingsTab = {
+  value: string;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+  iconClass: string;
+};
+
+const settingsTabs: SettingsTab[] = [
+  {
+    value: "profile",
+    label: "Profile",
+    description: "Personal info & preferences",
+    icon: User,
+    iconClass: "bg-blue-100 text-blue-600 group-data-[state=active]:bg-blue-600 group-data-[state=active]:text-white",
+  },
+  {
+    value: "notifications",
+    label: "Notifications",
+    description: "Choose how you get alerts",
+    icon: Bell,
+    iconClass: "bg-amber-100 text-amber-600 group-data-[state=active]:bg-amber-500 group-data-[state=active]:text-white",
+  },
+  {
+    value: "security",
+    label: "Security",
+    description: "Passwords & authentication",
+    icon: Shield,
+    iconClass: "bg-rose-100 text-rose-600 group-data-[state=active]:bg-rose-500 group-data-[state=active]:text-white",
+  },
+  {
+    value: "system",
+    label: "System",
+    description: "Localization & data settings",
+    icon: Database,
+    iconClass: "bg-purple-100 text-purple-600 group-data-[state=active]:bg-purple-500 group-data-[state=active]:text-white",
+  },
+  {
+    value: "company-setup",
+    label: "Company Setup",
+    description: "Manage entities & locations",
+    icon: Building,
+    iconClass: "bg-sky-100 text-sky-600 group-data-[state=active]:bg-sky-500 group-data-[state=active]:text-white",
+  },
+  {
+    value: "tax-setup",
+    label: "Tax Setup",
+    description: "Configure tax rules",
+    icon: Receipt,
+    iconClass: "bg-emerald-100 text-emerald-600 group-data-[state=active]:bg-emerald-500 group-data-[state=active]:text-white",
+  },
+  {
+    value: "users",
+    label: "Users",
+    description: "Control team access",
+    icon: Users,
+    iconClass: "bg-indigo-100 text-indigo-600 group-data-[state=active]:bg-indigo-500 group-data-[state=active]:text-white",
+  },
+];
 
 const Settings = () => {
   const { toast } = useToast();
@@ -48,6 +110,7 @@ const Settings = () => {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<string | null>(null);
   const [settings, setSettings] = useState({
     // Profile settings
     firstName: "",
@@ -325,41 +388,46 @@ const Settings = () => {
           </Badge>
         </div>
 
-        {/* Settings Tabs */}
-        <Tabs defaultValue="profile" className="space-y-6">
-          <TabsList className="w-full bg-white/70 backdrop-blur-sm overflow-x-auto inline-flex items-center justify-between gap-8 md:gap-16">
-            <TabsTrigger value="profile" className="flex items-center gap-2 whitespace-nowrap">
-              <User className="w-4 h-4" />
-              <span className="hidden sm:inline">Profile</span>
-            </TabsTrigger>
-            <TabsTrigger value="notifications" className="flex items-center gap-2 whitespace-nowrap">
-              <Bell className="w-4 h-4" />
-              <span className="hidden sm:inline">Notifications</span>
-            </TabsTrigger>
-            <TabsTrigger value="security" className="flex items-center gap-2 whitespace-nowrap">
-              <Shield className="w-4 h-4" />
-              <span className="hidden sm:inline">Security</span>
-            </TabsTrigger>
-            <TabsTrigger value="system" className="flex items-center gap-2 whitespace-nowrap">
-              <Database className="w-4 h-4" />
-              <span className="hidden sm:inline">System</span>
-            </TabsTrigger>
-            <TabsTrigger value="company-setup" className="flex items-center gap-2 whitespace-nowrap">
-              <Building className="w-4 h-4" />
-              <span className="hidden sm:inline">Company Setup</span>
-            </TabsTrigger>
-            <TabsTrigger value="tax-setup" className="flex items-center gap-2 whitespace-nowrap">
-              <Receipt className="w-4 h-4" />
-              <span className="hidden sm:inline">Tax Setup</span>
-            </TabsTrigger>
-            <TabsTrigger value="users" className="flex items-center gap-2 whitespace-nowrap">
-              <Users className="w-4 h-4" />
-              <span className="hidden sm:inline">Users</span>
-            </TabsTrigger>
-          </TabsList>
+        {/* Overview or Active Tab */}
+        {!activeTab ? (
+          <div className="space-y-6">
+            <div className="grid h-auto w-full gap-4 text-gray-900 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {settingsTabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.value}
+                    onClick={() => setActiveTab(tab.value)}
+                    className="group relative flex h-full w-full flex-col items-start gap-3 rounded-2xl border border-transparent bg-white/70 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2"
+                  >
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${tab.iconClass}`}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-gray-900">{tab.label}</p>
+                      <p className="text-xs text-gray-500">{tab.description}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <Tabs value={activeTab} className="space-y-6">
+            <div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveTab(null)}
+                className="flex items-center gap-2"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back to Settings
+              </Button>
+            </div>
 
-          {/* Profile Settings */}
-          <TabsContent value="profile" className="space-y-6">
+            {/* Profile Settings */}
+            <TabsContent value="profile" className="space-y-6">
             <Card className="bg-white/70 backdrop-blur-sm border-gray-200/50 shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1005,6 +1073,7 @@ const Settings = () => {
             </Card>
           </TabsContent>
         </Tabs>
+        )}
       </div>
     </div>
   );

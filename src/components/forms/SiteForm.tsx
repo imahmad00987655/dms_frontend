@@ -370,7 +370,11 @@ export const SiteForm: React.FC<SiteFormProps> = ({ partyId, customerId, supplie
               </label>
             </div>
             <p className="text-xs text-gray-500 ml-7">
-              Primary sites are used as default for billing and shipping
+              {supplierId
+                ? 'Primary sites are used as default for purchasing and invoicing'
+                : customerId
+                ? 'Primary sites are used as default for billing and shipping'
+                : 'Primary sites are used as default for billing and shipping'}
             </p>
           </div>
         </div>

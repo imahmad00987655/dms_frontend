@@ -20,6 +20,8 @@ interface TaxType {
   operatingUnit: string;
   ledger: string;
   liabilityAccount: string;
+  inputTaxAccount?: string;
+  outputTaxAccount?: string;
   roundingAccount: string;
   withholdingTax: boolean;
   selfAssessed: boolean;
@@ -36,6 +38,15 @@ interface TaxRegime {
   effective_date: string;
   end_date: string | null;
   status: string;
+}
+
+interface CoaSegment {
+  id: number;
+  segment_id: string;
+  segment_code: string;
+  segment_name: string;
+  segment_type: string;
+  is_primary?: boolean | number | null;
 }
 
 const TaxTypesForm = () => {
@@ -79,6 +90,8 @@ const TaxTypesForm = () => {
           operatingUnit: taxType.operating_unit,
           ledger: taxType.ledger,
           liabilityAccount: taxType.liability_account,
+          inputTaxAccount: (taxType as unknown as { input_tax_account?: string }).input_tax_account || '',
+          outputTaxAccount: (taxType as unknown as { output_tax_account?: string }).output_tax_account || '',
           roundingAccount: taxType.rounding_account,
           withholdingTax: !!taxType.is_withholding_tax,
           selfAssessed: !!taxType.is_self_assessed,
@@ -316,11 +329,115 @@ const TaxTypeForm = ({ taxType, taxRegimes, onClose, onSave }: { taxType: TaxTyp
     operatingUnit: taxType?.operatingUnit || '',
     ledger: taxType?.ledger || '',
     liabilityAccount: taxType?.liabilityAccount || '',
+    inputTaxAccount: taxType?.inputTaxAccount || '',
+    outputTaxAccount: taxType?.outputTaxAccount || '',
     roundingAccount: taxType?.roundingAccount || '',
     withholdingTax: taxType?.withholdingTax || false,
     selfAssessed: taxType?.selfAssessed || false,
     recoverable: taxType?.recoverable || false,
   });
+  const [liabilitySegments, setLiabilitySegments] = useState<CoaSegment[]>([]);
+  const [allSegments, setAllSegments] = useState<CoaSegment[]>([]);
+  const [loadingSegments, setLoadingSegments] = useState(false);
+  const [segmentsError, setSegmentsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchSegments = async () => {
+      setLoadingSegments(true);
+      setSegmentsError(null);
+      try {
+        const response = await apiService.getAccountingSegments();
+        console.debug('Liability segments response:', response);
+        const rawSegments = Array.isArray(response)
+          ? response
+          : Array.isArray(response?.data)
+            ? response.data
+            : Array.isArray(response?.data?.data)
+              ? response.data.data
+              : response?.segments || [];
+        const segments: CoaSegment[] = rawSegments || [];
+        setAllSegments(segments);
+        const filteredSegments = segments.filter((segment) => {
+          const type = (segment.segment_type || '').toUpperCase().trim();
+          return type === 'LIABILITIES' || type === 'LIABILITY';
+        });
+        setLiabilitySegments(filteredSegments);
+        if (filteredSegments.length === 0) {
+          console.warn('No liability segments found in response:', segments);
+        }
+        // Auto-select primary liability segment if not chosen yet
+        if (!formData.liabilityAccount || !formData.outputTaxAccount) {
+          const primary = filteredSegments.find(
+            (s) => s.is_primary === 1 || s.is_primary === true
+          );
+          if (primary) {
+            setFormData((prev) => ({ 
+              ...prev, 
+              liabilityAccount: prev.liabilityAccount || primary.id.toString(),
+              outputTaxAccount: prev.outputTaxAccount || primary.id.toString()
+            }));
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching liability segments:', error);
+        setSegmentsError('Failed to load liability segments');
+      } finally {
+        setLoadingSegments(false);
+      }
+    };
+
+    fetchSegments();
+  }, []);
+
+  useEffect(() => {
+    if (!formData.liabilityAccount || liabilitySegments.length === 0) {
+      return;
+    }
+
+    const currentValue = formData.liabilityAccount;
+    const matchesId = liabilitySegments.some(
+      (segment) => segment.id.toString() === currentValue
+    );
+
+    if (!matchesId) {
+      const matchedSegment = liabilitySegments.find((segment) => {
+        const candidate = currentValue.toUpperCase();
+        return (
+          segment.segment_code?.toUpperCase() === candidate ||
+          segment.segment_name?.toUpperCase() === candidate ||
+          segment.segment_id?.toUpperCase() === candidate
+        );
+      });
+
+      if (matchedSegment) {
+        setFormData((prev) => ({
+          ...prev,
+          liabilityAccount: matchedSegment.id.toString(),
+        }));
+      }
+    }
+  }, [formData.liabilityAccount, liabilitySegments]);
+
+  useEffect(() => {
+    if (!taxType) {
+      return;
+    }
+
+    setFormData({
+      code: taxType.code || '',
+      name: taxType.name || '',
+      regime: taxType.regime || '',
+      operatingUnit: taxType.operatingUnit || '',
+      ledger: taxType.ledger || '',
+      liabilityAccount: taxType.liabilityAccount || '',
+      inputTaxAccount: taxType.inputTaxAccount || '',
+      outputTaxAccount: taxType.outputTaxAccount || '',
+      roundingAccount: taxType.roundingAccount || '',
+      withholdingTax: taxType.withholdingTax || false,
+      selfAssessed: taxType.selfAssessed || false,
+      recoverable: taxType.recoverable || false,
+    });
+  }, [taxType]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -334,6 +451,8 @@ const TaxTypeForm = ({ taxType, taxRegimes, onClose, onSave }: { taxType: TaxTyp
         operating_unit: formData.operatingUnit,
         ledger: formData.ledger,
         liability_account: formData.liabilityAccount,
+        input_tax_account: formData.inputTaxAccount,
+        output_tax_account: formData.outputTaxAccount,
         rounding_account: formData.roundingAccount,
         is_withholding_tax: formData.withholdingTax,
         is_self_assessed: formData.selfAssessed,
@@ -441,12 +560,117 @@ const TaxTypeForm = ({ taxType, taxRegimes, onClose, onSave }: { taxType: TaxTyp
             
             <div className="space-y-2">
               <Label htmlFor="liabilityAccount">Liability Account</Label>
-          <Input 
-            id="liabilityAccount" 
-            placeholder="e.g., CGST Payable"
-            value={formData.liabilityAccount}
-            onChange={(e) => setFormData({...formData, liabilityAccount: e.target.value})}
-          />
+              <Select
+                value={formData.liabilityAccount}
+                onValueChange={(value) => setFormData({ ...formData, liabilityAccount: value })}
+                disabled={loadingSegments}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      loadingSegments
+                        ? 'Loading liability segments...'
+                        : liabilitySegments.length === 0
+                          ? 'No liability segments available'
+                          : 'Select liability segment'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {liabilitySegments.length > 0 ? (
+                    [...liabilitySegments]
+                      .sort((a, b) => Number((b.is_primary === 1 || b.is_primary === true)) - Number((a.is_primary === 1 || a.is_primary === true)))
+                      .map((segment) => (
+                      <SelectItem key={segment.id} value={segment.id.toString()}>
+                        {segment.segment_name} {segment.segment_code ? `(${segment.segment_code})` : ''}
+                        {(segment.is_primary === 1 || segment.is_primary === true) && (
+                          <span className="ml-2 text-xs text-green-600">Primary</span>
+                        )}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="placeholder" disabled>
+                      {loadingSegments ? 'Loading...' : 'No liability segments found'}
+                    </SelectItem>
+                  )}
+                  {formData.liabilityAccount &&
+                    !liabilitySegments.some(
+                      (segment) =>
+                        segment.id.toString() === formData.liabilityAccount
+                    ) && (
+                      <SelectItem value={formData.liabilityAccount}>
+                        {formData.liabilityAccount}
+                      </SelectItem>
+                    )}
+                </SelectContent>
+              </Select>
+              {segmentsError && (
+                <p className="text-sm text-red-500">{segmentsError}</p>
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="inputTaxAccount">Input Tax Account</Label>
+              <Select
+                value={formData.inputTaxAccount}
+                onValueChange={(value) => setFormData({ ...formData, inputTaxAccount: value })}
+                disabled={loadingSegments}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={loadingSegments ? 'Loading segments...' : 'Select input tax account'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {allSegments.length > 0 ? (
+                    [...allSegments]
+                      .sort((a, b) => Number((b.is_primary === 1 || b.is_primary === true)) - Number((a.is_primary === 1 || a.is_primary === true)))
+                      .map((segment) => (
+                        <SelectItem key={segment.id} value={segment.id.toString()}>
+                          {segment.segment_name} {segment.segment_code ? `(${segment.segment_code})` : ''}{' '}
+                          {segment.segment_type ? `- ${segment.segment_type}` : ''}
+                          {(segment.is_primary === 1 || segment.is_primary === true) && (
+                            <span className="ml-2 text-xs text-green-600">Primary</span>
+                          )}
+                        </SelectItem>
+                      ))
+                  ) : (
+                    <SelectItem value="placeholder" disabled>
+                      {loadingSegments ? 'Loading...' : 'No segments found'}
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="outputTaxAccount">Output Tax Account</Label>
+              <Select
+                value={formData.outputTaxAccount}
+                onValueChange={(value) => setFormData({ ...formData, outputTaxAccount: value })}
+                disabled={loadingSegments}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={loadingSegments ? 'Loading segments...' : 'Select output tax account'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {allSegments.length > 0 ? (
+                    [...allSegments]
+                      .sort((a, b) => Number((b.is_primary === 1 || b.is_primary === true)) - Number((a.is_primary === 1 || a.is_primary === true)))
+                      .map((segment) => (
+                        <SelectItem key={segment.id} value={segment.id.toString()}>
+                          {segment.segment_name} {segment.segment_code ? `(${segment.segment_code})` : ''}{' '}
+                          {segment.segment_type ? `- ${segment.segment_type}` : ''}
+                          {(segment.is_primary === 1 || segment.is_primary === true) && (
+                            <span className="ml-2 text-xs text-green-600">Primary</span>
+                          )}
+                        </SelectItem>
+                      ))
+                  ) : (
+                    <SelectItem value="placeholder" disabled>
+                      {loadingSegments ? 'Loading...' : 'No segments found'}
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
             
             <div className="space-y-2">

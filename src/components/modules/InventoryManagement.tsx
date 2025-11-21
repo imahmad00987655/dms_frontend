@@ -18,8 +18,10 @@ export interface InventoryItem {
   item_name: string;
   description?: string;
   category?: string;
-  quantity?: number;
-  unit_price?: number;
+  quantity?: number; // May be calculated from bin_cards
+  unit_price?: number; // Legacy field - use item_purchase_rate or item_sell_price
+  item_purchase_rate?: number;
+  item_sell_price?: number;
   location?: string;
 }
 
@@ -61,11 +63,16 @@ export const InventoryManagement = () => {
   });
 
   // Summary calculations
-  const totalValue = inventory.reduce(
-    (sum, item) => sum + ((Number(item.quantity) || 0) * (Number(item.unit_price) || 0)),
-    0
-  );
-  const lowStockItems = inventory.filter(item => (Number(item.quantity) || 0) <= 10).length;
+  const totalValue = inventory.reduce((sum, item) => {
+    const unitPrice = Number(item.item_purchase_rate) || Number(item.item_sell_price) || Number(item.unit_price) || 0;
+    const quantity = Number(item.quantity) || 0;
+    return sum + (quantity * unitPrice);
+  }, 0);
+  // Low stock: quantity > 0 and <= 10 (excludes out of stock items with quantity = 0)
+  const lowStockItems = inventory.filter(item => {
+    const quantity = Number(item.quantity) || 0;
+    return quantity > 0 && quantity <= 10;
+  }).length;
 
   // Remove the conditional rendering - we'll use Dialog instead
 
@@ -113,7 +120,9 @@ export const InventoryManagement = () => {
                 <Package className="w-4 h-4 text-gray-600" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">${totalValue.toLocaleString()}</div>
+                <div className="text-2xl font-bold">
+                  ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
               </CardContent>
             </Card>
             <Card>
@@ -190,8 +199,22 @@ export const InventoryManagement = () => {
                     </thead>
                     <tbody>
                       {filteredInventory.map((item) => {
-                        const totalValue = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
-                        const isLowStock = (Number(item.quantity) || 0) <= 10;
+                        // Use item_purchase_rate or item_sell_price, fallback to unit_price for legacy data
+                        const unitPrice = Number(item.item_purchase_rate) || Number(item.item_sell_price) || Number(item.unit_price) || 0;
+                        const quantity = Number(item.quantity) || 0;
+                        const totalValue = quantity * unitPrice;
+                        
+                        // Determine status: Out of Stock (0), Low Stock (1-10), In Stock (>10)
+                        let statusText = "In Stock";
+                        let statusVariant: "destructive" | "default" | "secondary" = "default";
+                        if (quantity === 0) {
+                          statusText = "Out of Stock";
+                          statusVariant = "secondary";
+                        } else if (quantity <= 10) {
+                          statusText = "Low Stock";
+                          statusVariant = "destructive";
+                        }
+                        
                         return (
                           <tr key={item.id} className="border-b hover:bg-gray-50">
                             <td className="py-3 px-4">
@@ -202,19 +225,23 @@ export const InventoryManagement = () => {
                             </td>
                             <td className="py-3 px-4">{item.item_code}</td>
                             <td className="py-3 px-4">
-                              <Badge variant="outline">{item.category}</Badge>
+                              <Badge variant="outline">{item.category || 'N/A'}</Badge>
                             </td>
                             <td className="py-3 px-4">
-                              <div className="font-medium">{item.quantity}</div>
+                              <div className="font-medium">{quantity}</div>
                             </td>
                             <td className="py-3 px-4">
-                              <div className="text-sm text-blue-600">${Number(item.unit_price).toFixed(2)}</div>
+                              <div className="text-sm text-blue-600">
+                                {unitPrice > 0 ? `$${unitPrice.toFixed(2)}` : '$0.00'}
+                              </div>
                             </td>
-                            <td className="py-3 px-4">${totalValue.toLocaleString()}</td>
-                            <td className="py-3 px-4">{item.location}</td>
                             <td className="py-3 px-4">
-                              <Badge variant={isLowStock ? "destructive" : "default"}>
-                                {isLowStock ? "Low Stock" : "In Stock"}
+                              ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            <td className="py-3 px-4">{item.location || '-'}</td>
+                            <td className="py-3 px-4">
+                              <Badge variant={statusVariant}>
+                                {statusText}
                               </Badge>
                             </td>
                           </tr>

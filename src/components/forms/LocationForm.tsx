@@ -17,9 +17,6 @@ interface CompanyLocation {
   state?: string;
   postal_code?: string;
   country?: string;
-  phone?: string;
-  email?: string;
-  contact_person?: string;
   is_primary: boolean;
   is_active: boolean;
   status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
@@ -50,9 +47,6 @@ export const LocationForm: React.FC<LocationFormProps> = ({
     state: locationToEdit?.state || '',
     postal_code: locationToEdit?.postal_code || '',
     country: locationToEdit?.country || '',
-    phone: locationToEdit?.phone || '',
-    email: locationToEdit?.email || '',
-    contact_person: locationToEdit?.contact_person || '',
     is_primary: locationToEdit?.is_primary || false,
     status: locationToEdit?.status || 'ACTIVE'
   });
@@ -72,9 +66,6 @@ export const LocationForm: React.FC<LocationFormProps> = ({
         state: locationToEdit.state || '',
         postal_code: locationToEdit.postal_code || '',
         country: locationToEdit.country || '',
-        phone: locationToEdit.phone || '',
-        email: locationToEdit.email || '',
-        contact_person: locationToEdit.contact_person || '',
         is_primary: locationToEdit.is_primary || false,
         status: locationToEdit.status || 'ACTIVE'
       });
@@ -89,9 +80,6 @@ export const LocationForm: React.FC<LocationFormProps> = ({
         state: '',
         postal_code: '',
         country: '',
-        phone: '',
-        email: '',
-        contact_person: '',
         is_primary: false,
         status: 'ACTIVE'
       });
@@ -283,47 +271,6 @@ export const LocationForm: React.FC<LocationFormProps> = ({
               />
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Contact Information Section */}
-      <div className="space-y-4">
-        <div className="border-b pb-2">
-          <h3 className="text-lg font-semibold text-gray-900">Contact Information</h3>
-          <p className="text-sm text-gray-600">Contact details for this location</p>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Phone</label>
-            <Input
-              value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-              placeholder="Phone number"
-              className="w-full"
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Email</label>
-            <Input
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              type="email"
-              placeholder="Email address"
-              className="w-full"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-700">Contact Person</label>
-          <Input
-            value={formData.contact_person}
-            onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
-            placeholder="Contact person name"
-            className="w-full"
-          />
         </div>
       </div>
 

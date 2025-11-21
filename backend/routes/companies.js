@@ -102,6 +102,8 @@ router.post('/', async (req, res) => {
       name,
       legal_name,
       registration_number,
+      strn,
+      ntn,
       country,
       currency,
       fiscal_year_start,
@@ -123,9 +125,9 @@ router.post('/', async (req, res) => {
 
     const sql = `
       INSERT INTO companies (
-        company_code, name, legal_name, registration_number, country, currency,
+        company_code, name, legal_name, registration_number, strn, ntn, country, currency,
         fiscal_year_start, status, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const params = [
@@ -133,6 +135,8 @@ router.post('/', async (req, res) => {
       name,
       legal_name,
       registration_number,
+      strn || null,
+      ntn || null,
       country || null,
       currency || 'USD',
       fiscal_year_start || null,
@@ -179,6 +183,8 @@ router.put('/:id', async (req, res) => {
       name,
       legal_name,
       registration_number,
+      strn,
+      ntn,
       country,
       currency,
       fiscal_year_start,
@@ -198,7 +204,7 @@ router.put('/:id', async (req, res) => {
 
     const sql = `
       UPDATE companies SET 
-        name = ?, legal_name = ?, registration_number = ?, country = ?, 
+        name = ?, legal_name = ?, registration_number = ?, strn = ?, ntn = ?, country = ?, 
         currency = ?, fiscal_year_start = ?, status = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `;
@@ -207,6 +213,8 @@ router.put('/:id', async (req, res) => {
       name,
       legal_name,
       registration_number,
+      strn || null,
+      ntn || null,
       country || null,
       currency || 'USD',
       fiscal_year_start || null,

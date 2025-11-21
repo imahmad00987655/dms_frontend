@@ -39,6 +39,7 @@ interface AccountingSegment {
   segment_name: string;
   segment_type: string;
   segment_use: string;
+  is_primary?: boolean | number | null;
   status: string;
 }
 
@@ -120,15 +121,20 @@ const ChartOfAccountSetup = () => {
     name: ""
   });
 
-  // State for Create Segment Dialog
-  const [showSegmentForm, setShowSegmentForm] = useState(false);
+  // State for segment creation
   const [segmentFormData, setSegmentFormData] = useState({
     id: "",
     code: "",
     name: "",
     type: "",
-    description: ""
+    description: "",
+    is_primary: false
   });
+
+  const [structureTab, setStructureTab] = useState<'chart-of-accounts' | 'segments'>('chart-of-accounts');
+
+  // State for showing/hiding segment creation form
+  const [showSegmentForm, setShowSegmentForm] = useState(false);
 
   // Fetch available accounting segments
   const fetchAccountingSegments = async () => {
@@ -361,6 +367,34 @@ const ChartOfAccountSetup = () => {
       return;
     }
 
+    // Validate code must be exactly 5 digits
+    if (!/^\d{5}$/.test(segmentFormData.code)) {
+      toast({
+        title: "Error",
+        description: "Code must be exactly 5 digits",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Check if trying to create a primary segment for a type that already has one
+    if (segmentFormData.is_primary && segmentFormData.type) {
+      const existingPrimarySegment = availableSegments.find(
+        segment => 
+          segment.segment_type === segmentFormData.type &&
+          (segment.is_primary === true || segment.is_primary === 1)
+      );
+      
+      if (existingPrimarySegment) {
+        toast({
+          title: "Error",
+          description: `A primary segment already exists for type "${segmentFormData.type}". Only one primary segment is allowed per type.`,
+          variant: "destructive"
+        });
+        return;
+      }
+    }
+
     try {
       const requestData = {
         segment_id: segmentFormData.id,
@@ -368,6 +402,7 @@ const ChartOfAccountSetup = () => {
         segment_name: segmentFormData.name,
         segment_type: segmentFormData.type,
         segment_use: segmentFormData.description || null,
+        is_primary: segmentFormData.is_primary,
         status: 'ACTIVE',
         created_by: 1 // TODO: Replace with actual user ID from auth context
       };
@@ -385,19 +420,18 @@ const ChartOfAccountSetup = () => {
           title: "Success",
           description: "Segment created successfully",
         });
-        
-        // Reset form and close dialog
-        setShowSegmentForm(false);
+
+        // Reset form
         setSegmentFormData({
           id: "",
           code: "",
           name: "",
           type: "",
-          description: ""
+          description: "",
+          is_primary: false
         });
 
-        // Optionally refresh data if needed
-        // await fetchCoAs();
+        await fetchAccountingSegments();
       } else {
         throw new Error(result.error || 'Failed to create segment');
       }
@@ -790,503 +824,599 @@ const ChartOfAccountSetup = () => {
 
             {/* Structure Definition Tab */}
             <TabsContent value="structure-definition" className="space-y-6">
-              <div className="space-y-6">
-                {/* Create Chart of Account Button */}
-                {!showForm && (
-                  <div className="flex justify-end gap-3">
-                    <Button 
-                      onClick={() => {
+              <Tabs
+                value={structureTab}
+                onValueChange={(value) => setStructureTab(value as 'chart-of-accounts' | 'segments')}
+                className="space-y-6"
+              >
+                <TabsList className="grid w-full grid-cols-1 gap-2 rounded-2xl bg-slate-100 p-1 sm:grid-cols-2">
+                  <TabsTrigger
+                    value="chart-of-accounts"
+                    className="rounded-xl px-4 py-3 text-sm font-semibold transition-all data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-gray-900"
+                  >
+                    Chart of Accounts
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="segments"
+                    className="rounded-xl px-4 py-3 text-sm font-semibold transition-all data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-gray-900"
+                  >
+                    Segments
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="chart-of-accounts" className="space-y-6">
+                  {!showForm && (
+                    <div className="flex justify-end">
+                      <Button
+                        onClick={() => {
+                          setEditingCoA(null);
+                          setCoaName("");
+                          setDescription("");
+                          setSegments([]);
+                          setShowForm(true);
+                        }}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Create Chart of Account
+                      </Button>
+                    </div>
+                  )}
+
+                  <Dialog
+                    open={showForm}
+                    onOpenChange={(open) => {
+                      if (!open) {
+                        setShowForm(false);
                         setEditingCoA(null);
                         setCoaName("");
                         setDescription("");
                         setSegments([]);
+                      } else {
                         setShowForm(true);
-                      }} 
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Create Chart of Account
-                    </Button>
-                    <Button 
-                      onClick={() => {
+                      }
+                    }}
+                  >
+                    <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>{editingCoA ? 'Edit Chart of Accounts' : 'Create Chart of Accounts'}</DialogTitle>
+                        <DialogDescription>
+                          {editingCoA
+                            ? 'Update the structure of your Chart of Accounts'
+                            : 'Define the structure of your Chart of Accounts by adding segments'}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-6 py-4">
+                        <div className="space-y-4">
+                          <div>
+                            <Label htmlFor="coa-name">CoA Name *</Label>
+                            <Input
+                              id="coa-name"
+                              value={coaName}
+                              onChange={(e) => setCoaName(e.target.value)}
+                              placeholder="Enter CoA Name"
+                              className="mt-1"
+                            />
+                          </div>
+
+                          <div>
+                            <Label htmlFor="description">Description</Label>
+                            <textarea
+                              id="description"
+                              value={description}
+                              onChange={(e) => setDescription(e.target.value)}
+                              placeholder="Enter Description"
+                              className="mt-1 w-full p-3 border border-gray-300 rounded-md resize-none"
+                              rows={3}
+                            />
+                          </div>
+
+                          <div>
+                            <h3 className="text-lg font-semibold mb-4">Segments</h3>
+                            
+                            {/* Current Segments */}
+                            <div className="space-y-2 mb-4">
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-sm font-medium text-gray-700">
+                                  {segments.length}/5 Segments Added
+                                </p>
+                              </div>
+                              {segments.map((segment) => (
+                                <div key={segment.id} className="flex items-center gap-2">
+                                  <Badge variant="secondary" className="bg-green-100 text-green-800">
+                                    {segment.name}: {segment.value}
+                                  </Badge>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleRemoveSegment(segment.id)}
+                                    className="h-6 w-6 p-0"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              ))}
+                              {segments.length === 0 && (
+                                <p className="text-sm text-gray-500 italic">No segments added yet. Add up to 5 segments.</p>
+                              )}
+                              {segments.length > 0 && (
+                                <p className="text-sm text-gray-600">Preview: {formatPreview}</p>
+                              )}
+                            </div>
+
+                            {/* Add New Segment */}
+                            <div className="bg-gray-50 p-4 rounded-lg space-y-4">
+                              <h4 className="font-medium">Add New Segment</h4>
+                              <div className="flex gap-4 items-end">
+                                <div className="flex-1">
+                                  <Label htmlFor="segment-name">Select Segment *</Label>
+                                  <Select
+                                    value={newSegment.name}
+                                    onValueChange={(value) => setNewSegment({ name: value })}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select a segment type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {availableSegments.map((segment) => (
+                                        <SelectItem 
+                                          key={segment.segment_id} 
+                                          value={segment.segment_name}
+                                          disabled={segments.some(s => s.name === segment.segment_name)}
+                                        >
+                                          <div className="flex flex-col">
+                                            <span className="font-medium">{segment.segment_name}</span>
+                                            <span className="text-xs text-gray-500">{segment.segment_type}</span>
+                                          </div>
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Button 
+                                    onClick={handleAddSegment} 
+                                    className="bg-green-600 hover:bg-green-700"
+                                    disabled={segments.length >= 5 || !newSegment.name}
+                                  >
+                                    <Plus className="w-4 h-4 mr-2" />
+                                    Add
+                                  </Button>
+                                </div>
+                              </div>
+                              <p className="text-sm text-gray-600">
+                                * Select accounting segments to include in your Chart of Accounts. Maximum 5 segments allowed.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button 
+                          variant="outline" 
+                          onClick={() => {
+                            setShowForm(false);
+                            setEditingCoA(null);
+                            setCoaName("");
+                            setDescription("");
+                            setSegments([]);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button onClick={handleCreateCoA} className="bg-green-600 hover:bg-green-700">
+                          {editingCoA ? 'Update Chart of Accounts' : 'Create Chart of Accounts'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* Chart of Accounts Table */}
+                  <Card className="bg-white shadow-lg">
+                    <CardHeader>
+                      <CardTitle>Chart of Accounts</CardTitle>
+                      <CardDescription>
+                        View all created Chart of Accounts and their segments
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {loading ? (
+                        <div className="text-center py-8 text-gray-500">Loading...</div>
+                      ) : coaList.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          No Chart of Accounts created yet. Click "Create Chart of Account" to get started.
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>CoA Name</TableHead>
+                                <TableHead>Description</TableHead>
+                                <TableHead>Segments</TableHead>
+                                <TableHead>Actions</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {coaList.map((coa) => {
+                                // Extract segments that are not "None"
+                                const coaSegments = [
+                                  { name: coa.segment_1_name, value: coa.segment_1_value },
+                                  { name: coa.segment_2_name, value: coa.segment_2_value },
+                                  { name: coa.segment_3_name, value: coa.segment_3_value },
+                                  { name: coa.segment_4_name, value: coa.segment_4_value },
+                                  { name: coa.segment_5_name, value: coa.segment_5_value }
+                                ].filter(s => s.name && s.name !== 'None');
+                                
+                                return (
+                                  <TableRow key={coa.id}>
+                                    <TableCell className="font-medium">{coa.coa_name}</TableCell>
+                                    <TableCell className="text-gray-600">
+                                      {coa.description || '-'}
+                                    </TableCell>
+                                    <TableCell>
+                                      {(() => {
+                                        // Get all 5 segment values, using "00000" for empty/null ones
+                                        const segmentCodes = [
+                                          coa.segment_1_value || '00000',
+                                          coa.segment_2_value || '00000',
+                                          coa.segment_3_value || '00000',
+                                          coa.segment_4_value || '00000',
+                                          coa.segment_5_value || '00000'
+                                        ];
+                                        
+                                        // Display codes separated by commas
+                                        return (
+                                          <span className="text-sm font-mono">
+                                            {segmentCodes.join(', ')}
+                                          </span>
+                                        );
+                                      })()}
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className="flex items-center gap-2">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => handleViewCoA(coa)}
+                                          className="h-8 w-8 p-0 hover:bg-green-100"
+                                          title="View Chart of Account"
+                                        >
+                                          <Eye className="w-4 h-4 text-green-600" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => handleEditCoA(coa)}
+                                          className="h-8 w-8 p-0 hover:bg-blue-100"
+                                          title="Edit Chart of Account"
+                                        >
+                                          <Edit className="w-4 h-4 text-blue-600" />
+                                        </Button>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* View Chart of Account Dialog */}
+                  <Dialog open={showViewModal} onOpenChange={(open) => {
+                    if (!open) {
+                      setShowViewModal(false);
+                      setViewingCoA(null);
+                    } else {
+                      setShowViewModal(true);
+                    }
+                  }}>
+                    <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>Chart of Account Details</DialogTitle>
+                        <DialogDescription>
+                          View complete information about this Chart of Account
+                        </DialogDescription>
+                      </DialogHeader>
+                      {viewingCoA && (
+                        <div className="space-y-6 py-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Basic Information */}
+                            <div className="space-y-4">
+                              <div>
+                                <Label className="text-sm font-medium text-gray-600">CoA Name</Label>
+                                <div className="mt-1 p-3 bg-gray-50 rounded-md border">
+                                  <span className="text-gray-900 font-medium">{viewingCoA.coa_name}</span>
+                                </div>
+                              </div>
+                              
+                              <div>
+                                <Label className="text-sm font-medium text-gray-600">Description</Label>
+                                <div className="mt-1 p-3 bg-gray-50 rounded-md border min-h-[60px]">
+                                  <span className="text-gray-900">
+                                    {viewingCoA.description || 'No description provided'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div>
+                                <Label className="text-sm font-medium text-gray-600">Segment Length</Label>
+                                <div className="mt-1 p-3 bg-gray-50 rounded-md border">
+                                  <span className="text-gray-900">{viewingCoA.segment_length}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Additional Information */}
+                            <div className="space-y-4">
+                              <div>
+                                <Label className="text-sm font-medium text-gray-600">Created At</Label>
+                                <div className="mt-1 p-3 bg-gray-50 rounded-md border">
+                                  <span className="text-gray-900">
+                                    {new Date(viewingCoA.created_at).toLocaleDateString()}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Segments Section */}
+                          <div className="border-t pt-6">
+                            <h3 className="text-lg font-semibold mb-4">Segments</h3>
+                            <div className="space-y-3">
+                              {[
+                                { name: viewingCoA.segment_1_name, value: viewingCoA.segment_1_value, num: 1 },
+                                { name: viewingCoA.segment_2_name, value: viewingCoA.segment_2_value, num: 2 },
+                                { name: viewingCoA.segment_3_name, value: viewingCoA.segment_3_value, num: 3 },
+                                { name: viewingCoA.segment_4_name, value: viewingCoA.segment_4_value, num: 4 },
+                                { name: viewingCoA.segment_5_name, value: viewingCoA.segment_5_value, num: 5 }
+                              ].map((seg, idx) => (
+                                seg.name && seg.name !== 'None' && (
+                                  <div key={idx} className="border rounded-lg p-4 bg-gray-50">
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <p className="font-medium text-gray-900">
+                                          Segment {seg.num}: {seg.name}
+                                        </p>
+                                        <p className="text-sm text-gray-600 mt-1">Value: {seg.value}</p>
+                                      </div>
+                                      <Badge variant="secondary" className="bg-green-100 text-green-800">
+                                        Length: {viewingCoA.segment_length}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                )
+                              ))}
+                              {[
+                                { name: viewingCoA.segment_1_name, value: viewingCoA.segment_1_value },
+                                { name: viewingCoA.segment_2_name, value: viewingCoA.segment_2_value },
+                                { name: viewingCoA.segment_3_name, value: viewingCoA.segment_3_value },
+                                { name: viewingCoA.segment_4_name, value: viewingCoA.segment_4_value },
+                                { name: viewingCoA.segment_5_name, value: viewingCoA.segment_5_value }
+                              ].filter(s => s.name && s.name !== 'None').length === 0 && (
+                                <div className="text-center py-8 text-gray-400">
+                                  No segments defined
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      <DialogFooter>
+                        <Button
+                          onClick={() => setShowViewModal(false)}
+                          className="bg-green-600 hover:bg-green-700 text-white"
+                        >
+                          Close
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </TabsContent>
+
+                <TabsContent value="segments" className="space-y-6">
+                  <div className="space-y-6">
+                    <div className="flex justify-end">
+                      <Button
+                        onClick={() => setShowSegmentForm(true)}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Create Segment
+                      </Button>
+                    </div>
+
+                    <Dialog open={showSegmentForm} onOpenChange={(open) => {
+                      if (!open) {
+                        setShowSegmentForm(false);
                         setSegmentFormData({
                           id: "",
                           code: "",
                           name: "",
                           type: "",
-                          description: ""
+                          description: "",
+                          is_primary: false
                         });
+                      } else {
                         setShowSegmentForm(true);
-                      }} 
-                      className="bg-blue-600 hover:bg-blue-700"
-                    >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Create Segment
-                    </Button>
-                  </div>
-                )}
+                      }
+                    }}>
+                      <DialogContent className="max-w-2xl">
+                        <DialogHeader>
+                          <DialogTitle>Create Segment</DialogTitle>
+                          <DialogDescription>
+                            Define a new segment with its properties
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <Label htmlFor="segment-id">ID *</Label>
+                              <Input
+                                id="segment-id"
+                                value={segmentFormData.id}
+                                onChange={(e) => setSegmentFormData({ ...segmentFormData, id: e.target.value })}
+                                placeholder="Enter segment ID"
+                                className="mt-1"
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="segment-code">Code * (5 digits only)</Label>
+                              <Input
+                                id="segment-code"
+                                type="text"
+                                value={segmentFormData.code}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  // Only allow digits and limit to 5 characters
+                                  if (value === '' || /^\d{0,5}$/.test(value)) {
+                                    setSegmentFormData({ ...segmentFormData, code: value });
+                                  }
+                                }}
+                                placeholder="Enter 5-digit code"
+                                className="mt-1"
+                                maxLength={5}
+                              />
+                            </div>
+                          </div>
 
-                {/* Form Dialog */}
-                <Dialog open={showForm} onOpenChange={(open) => {
-                  if (!open) {
-                    setShowForm(false);
-                    setEditingCoA(null);
-                    setCoaName("");
-                    setDescription("");
-                    setSegments([]);
-                  } else {
-                    setShowForm(true);
-                  }
-                }}>
-                  <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle>{editingCoA ? 'Edit Chart of Accounts' : 'Create Chart of Accounts'}</DialogTitle>
-                      <DialogDescription>
-                        {editingCoA ? 'Update the structure of your Chart of Accounts' : 'Define the structure of your Chart of Accounts by adding segments'}
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-6 py-4">
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="coa-name">CoA Name *</Label>
-                  <Input
-                    id="coa-name"
-                    value={coaName}
-                    onChange={(e) => setCoaName(e.target.value)}
-                    placeholder="Enter CoA Name"
-                    className="mt-1"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="description">Description</Label>
-                  <textarea
-                    id="description"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Enter Description"
-                    className="mt-1 w-full p-3 border border-gray-300 rounded-md resize-none"
-                    rows={3}
-                  />
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Segments</h3>
-                  
-                  {/* Current Segments */}
-                  <div className="space-y-2 mb-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium text-gray-700">
-                        {segments.length}/5 Segments Added
-                      </p>
-                    </div>
-                    {segments.map((segment) => (
-                      <div key={segment.id} className="flex items-center gap-2">
-                        <Badge variant="secondary" className="bg-green-100 text-green-800">
-                          {segment.name}: {segment.value}
-                        </Badge>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRemoveSegment(segment.id)}
-                          className="h-6 w-6 p-0"
-                        >
-                          <X className="w-3 h-3" />
-                        </Button>
-                      </div>
-                    ))}
-                    {segments.length === 0 && (
-                      <p className="text-sm text-gray-500 italic">No segments added yet. Add up to 5 segments.</p>
-                    )}
-                    {segments.length > 0 && (
-                      <p className="text-sm text-gray-600">Preview: {formatPreview}</p>
-                    )}
-                  </div>
-
-                  {/* Add New Segment */}
-                  <div className="bg-gray-50 p-4 rounded-lg space-y-4">
-                    <h4 className="font-medium">Add New Segment</h4>
-                    <div className="flex gap-4 items-end">
-                      <div className="flex-1">
-                        <Label htmlFor="segment-name">Select Segment *</Label>
-                        <Select
-                          value={newSegment.name}
-                          onValueChange={(value) => setNewSegment({ name: value })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a segment type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableSegments.map((segment) => (
-                              <SelectItem 
-                                key={segment.segment_id} 
-                                value={segment.segment_name}
-                                disabled={segments.some(s => s.name === segment.segment_name)}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <Label htmlFor="segment-name-field">Name *</Label>
+                              <Input
+                                id="segment-name-field"
+                                value={segmentFormData.name}
+                                onChange={(e) => setSegmentFormData({ ...segmentFormData, name: e.target.value })}
+                                placeholder="Enter segment name"
+                                className="mt-1"
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="segment-type">Type *</Label>
+                              <Select
+                                value={segmentFormData.type}
+                                onValueChange={(value) => setSegmentFormData({ ...segmentFormData, type: value })}
                               >
-                                <div className="flex flex-col">
-                                  <span className="font-medium">{segment.segment_name}</span>
-                                  <span className="text-xs text-gray-500">{segment.segment_type}</span>
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Button 
-                          onClick={handleAddSegment} 
-                          className="bg-green-600 hover:bg-green-700"
-                          disabled={segments.length >= 5 || !newSegment.name}
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add
-                        </Button>
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-600">
-                      * Select accounting segments to include in your Chart of Accounts. Maximum 5 segments allowed.
-                    </p>
-                  </div>
-                </div>
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button 
-                        variant="outline" 
-                        onClick={() => {
-                          setShowForm(false);
-                          setEditingCoA(null);
-                          setCoaName("");
-                          setDescription("");
-                          setSegments([]);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                  <Button onClick={handleCreateCoA} className="bg-green-600 hover:bg-green-700">
-                        {editingCoA ? 'Update Chart of Accounts' : 'Create Chart of Accounts'}
-                  </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+                                <SelectTrigger id="segment-type" className="mt-1">
+                                  <SelectValue placeholder="Select segment type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="ASSETS">Assets</SelectItem>
+                                  <SelectItem value="LIABILITIES">Liabilities</SelectItem>
+                                  <SelectItem value="EQUITY">Equity</SelectItem>
+                                  <SelectItem value="REVENUE">Revenue</SelectItem>
+                                  <SelectItem value="EXPENSE">Expense</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
 
-                {/* Create Segment Dialog */}
-                <Dialog open={showSegmentForm} onOpenChange={(open) => {
-                  if (!open) {
-                    setShowSegmentForm(false);
-                    setSegmentFormData({
-                      id: "",
-                      code: "",
-                      name: "",
-                      type: "",
-                      description: ""
-                    });
-                  } else {
-                    setShowSegmentForm(true);
-                  }
-                }}>
-                  <DialogContent className="max-w-2xl">
-                    <DialogHeader>
-                      <DialogTitle>Create Segment</DialogTitle>
-                      <DialogDescription>
-                        Define a new segment with its properties
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label htmlFor="segment-id">ID *</Label>
-                          <Input
-                            id="segment-id"
-                            value={segmentFormData.id}
-                            onChange={(e) => setSegmentFormData({ ...segmentFormData, id: e.target.value })}
-                            placeholder="Enter segment ID"
-                            className="mt-1"
-                          />
+                          <div>
+                            <Label htmlFor="segment-description">Use</Label>
+                            <textarea
+                              id="segment-description"
+                              value={segmentFormData.description}
+                              onChange={(e) => setSegmentFormData({ ...segmentFormData, description: e.target.value })}
+                              placeholder="Enter use for this segment"
+                              className="mt-1 w-full p-3 border border-gray-300 rounded-md resize-none"
+                              rows={4}
+                            />
+                          </div>
+
+                          <div className="flex items-center space-x-3">
+                            <Checkbox
+                              id="segment-primary"
+                              checked={segmentFormData.is_primary}
+                              disabled={
+                                segmentFormData.type !== "" &&
+                                availableSegments.some(
+                                  segment =>
+                                    segment.segment_type === segmentFormData.type &&
+                                    (segment.is_primary === true || segment.is_primary === 1)
+                                )
+                              }
+                              onCheckedChange={(checked) =>
+                                setSegmentFormData({ ...segmentFormData, is_primary: Boolean(checked) })
+                              }
+                            />
+                            <Label htmlFor="segment-primary" className="text-sm font-medium text-gray-700">
+                              Set as Primary Segment
+                            </Label>
+                          </div>
+                          {segmentFormData.type !== "" &&
+                            availableSegments.some(
+                              segment =>
+                                segment.segment_type === segmentFormData.type &&
+                                (segment.is_primary === true || segment.is_primary === 1)
+                            ) ? (
+                            <p className="text-xs text-red-600 ml-7">
+                              A primary segment already exists for type "{segmentFormData.type}". Only one primary segment is allowed per type.
+                            </p>
+                          ) : (
+                            <p className="text-xs text-gray-500 ml-7">
+                              Primary segments are used as default for account creation.
+                            </p>
+                          )}
+
+                          <div className="flex justify-end">
+                            <Button onClick={handleCreateSegment} className="bg-green-600 hover-bg-green-700">
+                              Create Segment
+                            </Button>
+                          </div>
                         </div>
+                      </DialogContent>
+                    </Dialog>
 
-                        <div>
-                          <Label htmlFor="segment-code">Code *</Label>
-                          <Input
-                            id="segment-code"
-                            value={segmentFormData.code}
-                            onChange={(e) => setSegmentFormData({ ...segmentFormData, code: e.target.value })}
-                            placeholder="Enter segment code"
-                            className="mt-1"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <Label htmlFor="segment-name-field">Name *</Label>
-                        <Input
-                          id="segment-name-field"
-                          value={segmentFormData.name}
-                          onChange={(e) => setSegmentFormData({ ...segmentFormData, name: e.target.value })}
-                          placeholder="Enter segment name"
-                          className="mt-1"
-                        />
-                      </div>
-
-                      <div>
-                        <Label htmlFor="segment-type">Type *</Label>
-                        <Select 
-                          value={segmentFormData.type} 
-                          onValueChange={(value) => setSegmentFormData({ ...segmentFormData, type: value })}
-                        >
-                          <SelectTrigger id="segment-type" className="mt-1">
-                            <SelectValue placeholder="Select segment type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="ASSETS">Assets</SelectItem>
-                            <SelectItem value="LIABILITIES">Liabilities</SelectItem>
-                            <SelectItem value="EQUITY">Equity</SelectItem>
-                            <SelectItem value="REVENUE">Revenue</SelectItem>
-                            <SelectItem value="EXPENSE">Expense</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div>
-                        <Label htmlFor="segment-description">Use</Label>
-                        <textarea
-                          id="segment-description"
-                          value={segmentFormData.description}
-                          onChange={(e) => setSegmentFormData({ ...segmentFormData, description: e.target.value })}
-                          placeholder="Enter use for this segment"
-                          className="mt-1 w-full p-3 border border-gray-300 rounded-md resize-none"
-                          rows={4}
-                        />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button 
-                        variant="outline" 
-                        onClick={() => {
-                          setShowSegmentForm(false);
-                          setSegmentFormData({
-                            id: "",
-                            code: "",
-                            name: "",
-                            type: "",
-                            description: ""
-                          });
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button 
-                        onClick={handleCreateSegment}
-                        className="bg-blue-600 hover:bg-blue-700"
-                      >
-                        Create Segment
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-
-                {/* Chart of Accounts Table */}
-                <Card className="bg-white shadow-lg">
-                  <CardHeader>
-                    <CardTitle>Chart of Accounts</CardTitle>
-                    <CardDescription>
-                      View all created Chart of Accounts and their segments
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {loading ? (
-                      <div className="text-center py-8 text-gray-500">Loading...</div>
-                    ) : coaList.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
-                        No Chart of Accounts created yet. Click "Create Chart of Account" to get started.
-                </div>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>CoA Name</TableHead>
-                              <TableHead>Description</TableHead>
-                              <TableHead>Segments</TableHead>
-                              <TableHead>Actions</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {coaList.map((coa) => {
-                              // Extract segments that are not "None"
-                              const coaSegments = [
-                                { name: coa.segment_1_name, value: coa.segment_1_value },
-                                { name: coa.segment_2_name, value: coa.segment_2_value },
-                                { name: coa.segment_3_name, value: coa.segment_3_value },
-                                { name: coa.segment_4_name, value: coa.segment_4_value },
-                                { name: coa.segment_5_name, value: coa.segment_5_value }
-                              ].filter(s => s.name && s.name !== 'None');
-                              
-                              return (
-                                <TableRow key={coa.id}>
-                                  <TableCell className="font-medium">{coa.coa_name}</TableCell>
-                                  <TableCell className="text-gray-600">
-                                    {coa.description || '-'}
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="flex flex-wrap gap-2">
-                                      {coaSegments.map((seg, idx) => (
-                                        <Badge 
-                                          key={idx} 
-                                          variant="secondary" 
-                                          className="bg-green-100 text-green-800"
-                                        >
-                                          {seg.name}: {seg.value}
-                                        </Badge>
-                                      ))}
-                                      {coaSegments.length === 0 && (
-                                        <span className="text-gray-400 text-sm">No segments</span>
-                                      )}
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="flex items-center gap-2">
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleViewCoA(coa)}
-                                        className="h-8 w-8 p-0 hover:bg-green-100"
-                                        title="View Chart of Account"
-                                      >
-                                        <Eye className="w-4 h-4 text-green-600" />
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleEditCoA(coa)}
-                                        className="h-8 w-8 p-0 hover:bg-blue-100"
-                                        title="Edit Chart of Account"
-                                      >
-                                        <Edit className="w-4 h-4 text-blue-600" />
-                  </Button>
-                                    </div>
-                                  </TableCell>
+                    <Card className="bg-white shadow-lg">
+                      <CardHeader>
+                        <CardTitle>Segment Library</CardTitle>
+                        <CardDescription>All segments available for structure definitions</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        {availableSegments.length === 0 ? (
+                          <div className="text-center py-8 text-gray-500">
+                            No segments created yet. Add your first segment using the button above.
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Segment ID</TableHead>
+                                  <TableHead>Code</TableHead>
+                                  <TableHead>Name</TableHead>
+                                  <TableHead>Type</TableHead>
+                                  <TableHead>Use</TableHead>
+                                  <TableHead>Status</TableHead>
                                 </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* View Chart of Account Dialog */}
-                <Dialog open={showViewModal} onOpenChange={(open) => {
-                  if (!open) {
-                    setShowViewModal(false);
-                    setViewingCoA(null);
-                  } else {
-                    setShowViewModal(true);
-                  }
-                }}>
-                  <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle>Chart of Account Details</DialogTitle>
-                      <DialogDescription>
-                        View complete information about this Chart of Account
-                      </DialogDescription>
-                    </DialogHeader>
-                    {viewingCoA && (
-                      <div className="space-y-6 py-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          {/* Basic Information */}
-                          <div className="space-y-4">
-                            <div>
-                              <Label className="text-sm font-medium text-gray-600">CoA Name</Label>
-                              <div className="mt-1 p-3 bg-gray-50 rounded-md border">
-                                <span className="text-gray-900 font-medium">{viewingCoA.coa_name}</span>
-                              </div>
-                            </div>
-                            
-                            <div>
-                              <Label className="text-sm font-medium text-gray-600">Description</Label>
-                              <div className="mt-1 p-3 bg-gray-50 rounded-md border min-h-[60px]">
-                                <span className="text-gray-900">
-                                  {viewingCoA.description || 'No description provided'}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div>
-                              <Label className="text-sm font-medium text-gray-600">Segment Length</Label>
-                              <div className="mt-1 p-3 bg-gray-50 rounded-md border">
-                                <span className="text-gray-900">{viewingCoA.segment_length}</span>
-                              </div>
-                            </div>
+                              </TableHeader>
+                              <TableBody>
+                                {availableSegments.map((segment) => (
+                                  <TableRow key={segment.segment_id}>
+                                    <TableCell className="font-medium">{segment.segment_id}</TableCell>
+                                    <TableCell>{segment.segment_code}</TableCell>
+                                    <TableCell>{segment.segment_name}</TableCell>
+                                    <TableCell>{segment.segment_type}</TableCell>
+                                    <TableCell className="text-gray-600">{segment.segment_use || '-'}</TableCell>
+                                    <TableCell>
+                                      <Badge className={segment.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+                                        {segment.status}
+                                      </Badge>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
                           </div>
-
-                          {/* Additional Information */}
-                          <div className="space-y-4">
-                            <div>
-                              <Label className="text-sm font-medium text-gray-600">Created At</Label>
-                              <div className="mt-1 p-3 bg-gray-50 rounded-md border">
-                                <span className="text-gray-900">
-                                  {new Date(viewingCoA.created_at).toLocaleDateString()}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Segments Section */}
-                        <div className="border-t pt-6">
-                          <h3 className="text-lg font-semibold mb-4">Segments</h3>
-                          <div className="space-y-3">
-                            {[
-                              { name: viewingCoA.segment_1_name, value: viewingCoA.segment_1_value, num: 1 },
-                              { name: viewingCoA.segment_2_name, value: viewingCoA.segment_2_value, num: 2 },
-                              { name: viewingCoA.segment_3_name, value: viewingCoA.segment_3_value, num: 3 },
-                              { name: viewingCoA.segment_4_name, value: viewingCoA.segment_4_value, num: 4 },
-                              { name: viewingCoA.segment_5_name, value: viewingCoA.segment_5_value, num: 5 }
-                            ].map((seg, idx) => (
-                              seg.name && seg.name !== 'None' && (
-                                <div key={idx} className="border rounded-lg p-4 bg-gray-50">
-                                  <div className="flex items-center justify-between">
-                                    <div>
-                                      <p className="font-medium text-gray-900">
-                                        Segment {seg.num}: {seg.name}
-                                      </p>
-                                      <p className="text-sm text-gray-600 mt-1">Value: {seg.value}</p>
-                                    </div>
-                                    <Badge variant="secondary" className="bg-green-100 text-green-800">
-                                      Length: {viewingCoA.segment_length}
-                                    </Badge>
-                                  </div>
-                                </div>
-                              )
-                            ))}
-                            {[
-                              { name: viewingCoA.segment_1_name, value: viewingCoA.segment_1_value },
-                              { name: viewingCoA.segment_2_name, value: viewingCoA.segment_2_value },
-                              { name: viewingCoA.segment_3_name, value: viewingCoA.segment_3_value },
-                              { name: viewingCoA.segment_4_name, value: viewingCoA.segment_4_value },
-                              { name: viewingCoA.segment_5_name, value: viewingCoA.segment_5_value }
-                            ].filter(s => s.name && s.name !== 'None').length === 0 && (
-                              <div className="text-center py-8 text-gray-400">
-                                No segments defined
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    <DialogFooter>
-                      <Button
-                        onClick={() => setShowViewModal(false)}
-                        className="bg-green-600 hover:bg-green-700 text-white"
-                      >
-                        Close
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                </TabsContent>
+              </Tabs>
             </TabsContent>
 
             {/* Instances & Assignments Tab */}

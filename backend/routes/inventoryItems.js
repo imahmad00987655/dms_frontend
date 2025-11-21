@@ -10,9 +10,18 @@ router.get('/', async (req, res) => {
       SELECT 
         ii.*,
         s.supplier_name,
-        s.supplier_number
+        s.supplier_number,
+        COALESCE(SUM(bc.current_stock), 0) as quantity
       FROM inventory_items ii
       LEFT JOIN ap_suppliers s ON ii.brand = s.supplier_id
+      LEFT JOIN bin_cards bc ON ii.item_code = bc.item_code
+      GROUP BY ii.id, ii.item_code, ii.item_name, ii.description, ii.category, 
+               ii.location, ii.brand, ii.barcode, 
+               ii.item_purchase_rate, ii.item_sell_price, ii.tax_status,
+               ii.box_quantity, ii.uom_type, ii.uom_type_detail,
+               ii.income_account_segment_id, ii.cogs_account_segment_id,
+               ii.inventory_account_segment_id, ii.created_at, ii.updated_at,
+               s.supplier_name, s.supplier_number
       ORDER BY ii.created_at DESC
     `);
     res.json({ success: true, data: items });
@@ -50,7 +59,10 @@ router.post('/', async (req, res) => {
     const {
       item_code, item_name, description, category, location,
       brand, barcode, item_purchase_rate, item_sell_price, tax_status,
-      uom_type, box_quantity, uom_type_detail
+      uom_type, box_quantity, uom_type_detail,
+      income_account_segment_id,
+      cogs_account_segment_id,
+      inventory_account_segment_id
     } = req.body;
     if (!item_code || !item_name) {
       return res.status(400).json({ success: false, message: 'Item code and name are required' });
@@ -59,12 +71,16 @@ router.post('/', async (req, res) => {
       `INSERT INTO inventory_items (
         item_code, item_name, description, category, location,
         brand, barcode, item_purchase_rate, item_sell_price, tax_status,
-        uom_type, box_quantity, uom_type_detail
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        uom_type, box_quantity, uom_type_detail,
+        income_account_segment_id, cogs_account_segment_id, inventory_account_segment_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         item_code, item_name, description, category, location,
         brand || null, barcode, item_purchase_rate || 0, item_sell_price || 0, tax_status,
-        uom_type, box_quantity || 0, uom_type_detail || 0
+        uom_type, box_quantity || 0, uom_type_detail || 0,
+        income_account_segment_id || null,
+        cogs_account_segment_id || null,
+        inventory_account_segment_id || null
       ]
     );
     res.status(201).json({ success: true, message: 'Inventory item created successfully' });
@@ -80,7 +96,10 @@ router.put('/:id', async (req, res) => {
     const {
       item_code, item_name, description, category, location,
       brand, barcode, item_purchase_rate, item_sell_price, tax_status,
-      uom_type, box_quantity, uom_type_detail
+      uom_type, box_quantity, uom_type_detail,
+      income_account_segment_id,
+      cogs_account_segment_id,
+      inventory_account_segment_id
     } = req.body;
     
     if (!item_code || !item_name) {
@@ -92,12 +111,18 @@ router.put('/:id', async (req, res) => {
         item_code = ?, item_name = ?, description = ?, category = ?, 
         location = ?, brand = ?, barcode = ?,
         item_purchase_rate = ?, item_sell_price = ?, tax_status = ?,
-        uom_type = ?, box_quantity = ?, uom_type_detail = ?, updated_at = CURRENT_TIMESTAMP
+        uom_type = ?, box_quantity = ?, uom_type_detail = ?,
+        income_account_segment_id = ?, cogs_account_segment_id = ?, inventory_account_segment_id = ?,
+        updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [
         item_code, item_name, description, category, location,
         brand || null, barcode, item_purchase_rate || 0, item_sell_price || 0, tax_status,
-        uom_type, box_quantity || 0, uom_type_detail || 0, req.params.id
+        uom_type, box_quantity || 0, uom_type_detail || 0,
+        income_account_segment_id || null,
+        cogs_account_segment_id || null,
+        inventory_account_segment_id || null,
+        req.params.id
       ]
     );
     

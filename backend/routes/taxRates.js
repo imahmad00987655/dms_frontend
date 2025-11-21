@@ -74,6 +74,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // Create new tax rate
 router.post('/', authenticateToken, async (req, res) => {
   try {
+    console.log('Received tax rate creation request:', JSON.stringify(req.body, null, 2));
+    
     const {
       rate_code,
       tax_percentage,
@@ -87,10 +89,36 @@ router.post('/', authenticateToken, async (req, res) => {
     } = req.body;
     
     // Validate required fields
-    if (!rate_code || !tax_percentage || !tax_type_id || !effective_date) {
+    // Check for empty strings, null, undefined, or NaN values
+    if (!rate_code || (typeof rate_code === 'string' && rate_code.trim() === '')) {
+      console.log('Validation failed: rate_code is missing or empty');
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: rate_code, tax_percentage, tax_type_id, effective_date'
+        message: 'Missing required field: rate_code'
+      });
+    }
+    
+    if (tax_percentage === null || tax_percentage === undefined || isNaN(Number(tax_percentage))) {
+      console.log('Validation failed: tax_percentage is missing or invalid', { tax_percentage, type: typeof tax_percentage });
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required field: tax_percentage'
+      });
+    }
+    
+    if (!tax_type_id || isNaN(Number(tax_type_id))) {
+      console.log('Validation failed: tax_type_id is missing or invalid', { tax_type_id, type: typeof tax_type_id });
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required field: tax_type_id'
+      });
+    }
+    
+    if (!effective_date || (typeof effective_date === 'string' && effective_date.trim() === '')) {
+      console.log('Validation failed: effective_date is missing or empty', { effective_date, type: typeof effective_date });
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required field: effective_date'
       });
     }
     

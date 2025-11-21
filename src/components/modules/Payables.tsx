@@ -10,7 +10,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DollarSign, AlertTriangle, Search, Filter, Download } from "lucide-react";
+import { DollarSign, AlertTriangle, Search, Filter, Download, Eye, Edit, CheckCircle } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { APPaymentForm } from "@/components/forms/APPaymentForm";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileText } from "lucide-react";
@@ -52,7 +53,7 @@ interface APInvoice {
   amount_paid: number;
   amount_due: number;
   approval_status: 'PENDING' | 'APPROVED' | 'REJECTED';
-  status: 'DRAFT' | 'OPEN' | 'PAID' | 'CANCELLED' | 'VOID';
+  status: 'DRAFT' | 'PENDING' | 'OPEN' | 'PAID' | 'CANCELLED' | 'VOID';
   notes?: string;
   created_by: number;
   created_at: string;
@@ -100,11 +101,14 @@ export const Payables = () => {
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<APInvoice | null>(null);
   const [showInvoiceForm, setShowInvoiceForm] = useState(false);
+  const [editingInvoice, setEditingInvoice] = useState<APInvoice | null>(null);
+  const [viewingInvoice, setViewingInvoice] = useState<APInvoice | null>(null);
   const [invoices, setInvoices] = useState<APInvoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<APPayment[]>([]);
   const [loadingPayments, setLoadingPayments] = useState(true);
   const [suppliers, setSuppliers] = useState<APSupplier[]>([]);
+  const [approvingInvoiceId, setApprovingInvoiceId] = useState<number | null>(null);
 
   // Fetch invoices from backend
   const fetchInvoices = async () => {
@@ -163,8 +167,60 @@ export const Payables = () => {
 
   const handleInvoiceCreated = () => {
     setShowInvoiceForm(false);
+    setEditingInvoice(null);
     fetchInvoices(); // Refresh the list
     toast.success('Invoice created successfully');
+  };
+
+  const handleInvoiceUpdated = () => {
+    setShowInvoiceForm(false);
+    setEditingInvoice(null);
+    fetchInvoices(); // Refresh the list
+    toast.success('Invoice updated successfully');
+  };
+
+  const handleViewInvoice = async (invoice: APInvoice) => {
+    try {
+      // Fetch full invoice details with line items
+      const fullInvoice = await apiService.getAPInvoice(invoice.invoice_id);
+      setViewingInvoice(fullInvoice);
+    } catch (error) {
+      console.error('Error fetching invoice details:', error);
+      toast.error('Failed to load invoice details');
+    }
+  };
+
+  const handleEditInvoice = async (invoice: APInvoice) => {
+    try {
+      // Fetch full invoice details with line items
+      const fullInvoice = await apiService.getAPInvoice(invoice.invoice_id);
+      setEditingInvoice(fullInvoice);
+      setShowInvoiceForm(true);
+    } catch (error) {
+      console.error('Error fetching invoice details:', error);
+      toast.error('Failed to load invoice for editing');
+    }
+  };
+
+  const handleApproveInvoice = async (invoice: APInvoice) => {
+    if (!confirm(`Are you sure you want to approve invoice ${invoice.invoice_number}?`)) {
+      return;
+    }
+
+    try {
+      setApprovingInvoiceId(invoice.invoice_id);
+      // Only update approval_status, not status
+      // If invoice is DRAFT, change status to PENDING when approving
+      const newStatus = invoice.status === 'DRAFT' ? 'PENDING' : undefined;
+      await apiService.updateAPInvoiceStatus(invoice.invoice_id, newStatus, 'APPROVED');
+      toast.success('Invoice approved successfully');
+      fetchInvoices(); // Refresh the list
+    } catch (error) {
+      console.error('Error approving invoice:', error);
+      toast.error('Failed to approve invoice');
+    } finally {
+      setApprovingInvoiceId(null);
+    }
   };
 
   const handlePaymentCreated = () => {
@@ -237,15 +293,29 @@ export const Payables = () => {
     return matchesSearch && matchesStatus;
   });
 
-  const totalPayables = invoices.filter(p => p.status !== "PAID").reduce((sum, p) => sum + p.amount_due, 0);
-  const overduePayables = invoices.filter(p => p.status === "OPEN" && new Date(p.due_date) < new Date()).reduce((sum, p) => sum + p.amount_due, 0);
+  const totalPayables = invoices
+    .filter(p => p.status !== "PAID")
+    .reduce((sum, p) => sum + (Number(p.amount_due) || 0), 0);
+  const overduePayables = invoices
+    .filter(p => p.status === "OPEN" && new Date(p.due_date) < new Date())
+    .reduce((sum, p) => sum + (Number(p.amount_due) || 0), 0);
   const pendingCount = invoices.filter(p => p.status === "OPEN").length;
 
   if (showPaymentForm) {
     return <APPaymentForm onClose={closePaymentForm} selectedInvoice={selectedInvoice} onSuccess={handlePaymentCreated} />;
   }
   if (showInvoiceForm) {
-    return <APInvoiceForm onClose={() => setShowInvoiceForm(false)} onSuccess={handleInvoiceCreated} suppliers={suppliers} />;
+    return (
+      <APInvoiceForm 
+        onClose={() => {
+          setShowInvoiceForm(false);
+          setEditingInvoice(null);
+        }} 
+        onSuccess={editingInvoice ? handleInvoiceUpdated : handleInvoiceCreated} 
+        suppliers={suppliers}
+        invoiceToEdit={editingInvoice}
+      />
+    );
   }
 
   return (
@@ -265,7 +335,7 @@ export const Payables = () => {
             <DollarSign className="w-4 h-4 text-gray-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${totalPayables.toLocaleString()}</div>
+            <div className="text-2xl font-bold break-words overflow-hidden">${(Number(totalPayables) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
             <p className="text-xs text-gray-500 mt-1">Across {filteredInvoices.filter(p => p.status !== "PAID").length} invoices</p>
           </CardContent>
         </Card>
@@ -275,7 +345,7 @@ export const Payables = () => {
             <AlertTriangle className="w-4 h-4 text-gray-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">${overduePayables.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-red-600 break-words overflow-hidden">${(Number(overduePayables) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
             <p className="text-xs text-red-500 mt-1">Requires immediate attention</p>
           </CardContent>
         </Card>
@@ -442,15 +512,49 @@ export const Payables = () => {
                             </Badge>
                           </td>
                           <td className="py-3 px-4">
-                            {invoice.status === "OPEN" && invoice.amount_due > 0 && (
+                            <div className="flex items-center gap-2">
                               <Button
+                                variant="ghost"
                                 size="sm"
-                                onClick={() => handleCreatePayment(invoice)}
-                                className="mr-2"
+                                onClick={() => handleViewInvoice(invoice)}
+                                className="h-8 w-8 p-0"
+                                title="View Invoice"
                               >
-                                Pay
+                                <Eye className="h-4 w-4" />
                               </Button>
-                            )}
+                              {(invoice.status === "DRAFT" || invoice.status === "PENDING") && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleEditInvoice(invoice)}
+                                  className="h-8 w-8 p-0"
+                                  title="Edit Invoice"
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {invoice.approval_status === "PENDING" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleApproveInvoice(invoice)}
+                                  className="h-8 w-8 p-0 text-green-600 hover:text-green-700"
+                                  title="Approve Invoice"
+                                  disabled={approvingInvoiceId === invoice.invoice_id}
+                                >
+                                  <CheckCircle className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {invoice.status === "OPEN" && invoice.amount_due > 0 && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleCreatePayment(invoice)}
+                                  variant="default"
+                                >
+                                  Pay
+                                </Button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -552,6 +656,132 @@ export const Payables = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* View Invoice Dialog */}
+      <Dialog open={!!viewingInvoice} onOpenChange={(open) => !open && setViewingInvoice(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Invoice Details - {viewingInvoice?.invoice_number}</DialogTitle>
+          </DialogHeader>
+          {viewingInvoice && (
+            <div className="space-y-6">
+              {/* Invoice Header */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-gray-500">Supplier</p>
+                  <p className="font-medium">{viewingInvoice.supplier_name}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Invoice Date</p>
+                  <p className="font-medium">{new Date(viewingInvoice.invoice_date).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Due Date</p>
+                  <p className="font-medium">{new Date(viewingInvoice.due_date).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Status</p>
+                  <Badge variant={
+                    viewingInvoice.status === "PAID" ? "default" :
+                    viewingInvoice.status === "OPEN" ? "secondary" :
+                    viewingInvoice.status === "DRAFT" ? "outline" : "secondary"
+                  }>
+                    {viewingInvoice.status}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Approval Status</p>
+                  <Badge variant={
+                    viewingInvoice.approval_status === "APPROVED" ? "default" :
+                    viewingInvoice.approval_status === "PENDING" ? "secondary" : "destructive"
+                  }>
+                    {viewingInvoice.approval_status}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Currency</p>
+                  <p className="font-medium">{viewingInvoice.currency_code}</p>
+                </div>
+              </div>
+
+              {/* Line Items */}
+              {viewingInvoice.lines && viewingInvoice.lines.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Line Items</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-2 px-4">Line</th>
+                          <th className="text-left py-2 px-4">Item Code</th>
+                          <th className="text-left py-2 px-4">Item Name</th>
+                          <th className="text-right py-2 px-4">Quantity</th>
+                          <th className="text-right py-2 px-4">Unit Price</th>
+                          <th className="text-right py-2 px-4">Tax %</th>
+                          <th className="text-right py-2 px-4">Line Amount</th>
+                          <th className="text-right py-2 px-4">Tax Amount</th>
+                          <th className="text-right py-2 px-4">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {viewingInvoice.lines.map((line) => (
+                          <tr key={line.line_id} className="border-b">
+                            <td className="py-2 px-4">{line.line_number}</td>
+                            <td className="py-2 px-4">{line.item_code || '-'}</td>
+                            <td className="py-2 px-4">{line.item_name}</td>
+                            <td className="py-2 px-4 text-right">{line.quantity}</td>
+                            <td className="py-2 px-4 text-right">${(Number(line.unit_price) || 0).toFixed(2)}</td>
+                            <td className="py-2 px-4 text-right">{line.tax_rate}%</td>
+                            <td className="py-2 px-4 text-right">${(Number(line.line_amount) || 0).toFixed(2)}</td>
+                            <td className="py-2 px-4 text-right">${(Number(line.tax_amount) || 0).toFixed(2)}</td>
+                            <td className="py-2 px-4 text-right font-semibold">${((Number(line.line_amount) || 0) + (Number(line.tax_amount) || 0)).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Totals */}
+              <div className="border-t pt-4">
+                <div className="flex justify-end">
+                  <div className="w-64 space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Subtotal:</span>
+                      <span className="font-medium">${(Number(viewingInvoice.subtotal) || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Tax Amount:</span>
+                      <span className="font-medium">${(Number(viewingInvoice.tax_amount) || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between border-t pt-2">
+                      <span className="font-semibold">Total Amount:</span>
+                      <span className="font-bold text-lg">${(Number(viewingInvoice.total_amount) || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Amount Paid:</span>
+                      <span className="font-medium">${(Number(viewingInvoice.amount_paid) || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between border-t pt-2">
+                      <span className="font-semibold">Amount Due:</span>
+                      <span className="font-bold text-lg text-red-600">${(Number(viewingInvoice.amount_due) || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notes */}
+              {viewingInvoice.notes && (
+                <div>
+                  <p className="text-sm text-gray-500 mb-2">Notes</p>
+                  <p className="text-sm">{viewingInvoice.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

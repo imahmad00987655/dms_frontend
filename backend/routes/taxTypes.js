@@ -81,6 +81,8 @@ router.post('/', authenticateToken, async (req, res) => {
       operating_unit,
       ledger,
       liability_account,
+      input_tax_account,
+      output_tax_account,
       rounding_account,
       is_withholding_tax = false,
       is_self_assessed = false,
@@ -125,12 +127,12 @@ router.post('/', authenticateToken, async (req, res) => {
     const result = await executeQuery(`
       INSERT INTO tax_types (
         tax_type_code, tax_type_name, regime_id, operating_unit, ledger,
-        liability_account, rounding_account, is_withholding_tax, is_self_assessed,
+        liability_account, input_tax_account, output_tax_account, rounding_account, is_withholding_tax, is_self_assessed,
         is_recoverable, status, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       tax_type_code, tax_type_name, regime_id, operating_unit, ledger,
-      liability_account, rounding_account, is_withholding_tax, is_self_assessed,
+      liability_account, input_tax_account, output_tax_account, rounding_account, is_withholding_tax, is_self_assessed,
       is_recoverable, status, req.user.id
     ]);
     
@@ -173,6 +175,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
       operating_unit,
       ledger,
       liability_account,
+      input_tax_account,
+      output_tax_account,
       rounding_account,
       is_withholding_tax,
       is_self_assessed,
@@ -231,6 +235,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
         operating_unit = COALESCE(?, operating_unit),
         ledger = COALESCE(?, ledger),
         liability_account = COALESCE(?, liability_account),
+        input_tax_account = COALESCE(?, input_tax_account),
+        output_tax_account = COALESCE(?, output_tax_account),
         rounding_account = COALESCE(?, rounding_account),
         is_withholding_tax = COALESCE(?, is_withholding_tax),
         is_self_assessed = COALESCE(?, is_self_assessed),
@@ -240,7 +246,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       WHERE id = ?
     `, [
       tax_type_code, tax_type_name, regime_id, operating_unit, ledger,
-      liability_account, rounding_account, is_withholding_tax, is_self_assessed,
+      liability_account, input_tax_account, output_tax_account, rounding_account, is_withholding_tax, is_self_assessed,
       is_recoverable, status, id
     ]);
     

@@ -20,6 +20,9 @@ export interface InventoryItem {
   uom_type?: string;
   box_quantity?: number;
   uom_type_detail?: number;
+  income_account_segment_id?: number;
+  cogs_account_segment_id?: number;
+  inventory_account_segment_id?: number;
 }
 
 type LocationSummary = {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,24 @@ interface Supplier {
   supplier_type: string;
 }
 
+interface CoaSegment {
+  id: number;
+  segment_id: string;
+  segment_code: string;
+  segment_name: string;
+  segment_type: string;
+  is_primary?: boolean | number | null;
+}
+
+interface TaxRate {
+  id: number;
+  rate_code: string;
+  tax_percentage: number;
+  tax_type_id: number;
+  tax_type_name?: string;
+  status: string;
+}
+
 export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, onSave?: (item: InventoryItem) => void }) => {
   const [itemData, setItemData] = useState<InventoryItem>({
     item_code: "",
@@ -38,13 +56,22 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
     tax_status: "",
     uom_type: "",
     box_quantity: 0,
-    uom_type_detail: 0
+    uom_type_detail: 0,
+    income_account_segment_id: undefined,
+    cogs_account_segment_id: undefined,
+    inventory_account_segment_id: undefined
   });
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loadingSuppliers, setLoadingSuppliers] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [segments, setSegments] = useState<CoaSegment[]>([]);
+  const [loadingSegments, setLoadingSegments] = useState(false);
+  const [segmentsError, setSegmentsError] = useState<string | null>(null);
+  const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+  const [loadingTaxRates, setLoadingTaxRates] = useState(false);
+  const isPrimary = (val: unknown) => val === 1 || val === true;
 
   const categories = [
     "Electronics",
@@ -63,11 +90,6 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
     "Storage Room"
   ];
 
-  const taxStatuses = [
-    "Taxable",
-    "Non-Taxable",
-    "Exempt"
-  ];
 
   // Fetch suppliers on component mount
   useEffect(() => {
@@ -90,6 +112,119 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
 
     fetchSuppliers();
   }, []);
+
+  // Fetch tax rates on component mount
+  useEffect(() => {
+    const fetchTaxRates = async () => {
+      setLoadingTaxRates(true);
+      try {
+        const response = await apiService.getTaxRates();
+        if (response.success && response.data) {
+          // Filter only active tax rates
+          const activeRates = response.data.filter((rate: TaxRate) => 
+            rate.status === 'ACTIVE'
+          );
+          setTaxRates(activeRates);
+        } else if (Array.isArray(response)) {
+          const activeRates = response.filter((rate: TaxRate) => 
+            rate.status === 'ACTIVE'
+          );
+          setTaxRates(activeRates);
+        } else if (response.data) {
+          const rates = Array.isArray(response.data) ? response.data : [];
+          const activeRates = rates.filter((rate: TaxRate) => 
+            rate.status === 'ACTIVE'
+          );
+          setTaxRates(activeRates);
+        }
+      } catch (error) {
+        console.error('Error fetching tax rates:', error);
+        setError('Failed to load tax rates');
+      } finally {
+        setLoadingTaxRates(false);
+      }
+    };
+
+    fetchTaxRates();
+  }, []);
+
+  useEffect(() => {
+    const fetchSegments = async () => {
+      setLoadingSegments(true);
+      setSegmentsError(null);
+      try {
+        const response = await apiService.getAccountingSegments();
+        // Handle both response structures: { success: true, data: [...] } or direct array
+        const segmentsData = response?.data || (Array.isArray(response) ? response : []);
+        setSegments(segmentsData);
+        
+        // Debug logging
+        console.log('Accounting segments response:', segmentsData);
+        console.log('Revenue segments:', segmentsData.filter((s: CoaSegment) => s.segment_type?.toUpperCase() === 'REVENUE'));
+        console.log('Expense segments:', segmentsData.filter((s: CoaSegment) => s.segment_type?.toUpperCase() === 'EXPENSE'));
+        console.log('Asset segments:', segmentsData.filter((s: CoaSegment) => s.segment_type?.toUpperCase() === 'ASSETS' || s.segment_type?.toUpperCase() === 'ASSET'));
+
+        // Auto-select primary segments per type when none chosen yet
+        const findPrimaryId = (type: 'REVENUE' | 'EXPENSE' | 'ASSETS') => {
+          const match = segmentsData.find(
+            (s: CoaSegment) => s.segment_type?.trim().toUpperCase() === type && isPrimary(s.is_primary ?? false)
+          );
+          return match?.id;
+        };
+
+        setItemData(prev => {
+          const next = { ...prev };
+          if (!prev.income_account_segment_id) {
+            const revId = findPrimaryId('REVENUE');
+            if (revId) next.income_account_segment_id = revId;
+          }
+          if (!prev.cogs_account_segment_id) {
+            const expId = findPrimaryId('EXPENSE');
+            if (expId) next.cogs_account_segment_id = expId;
+          }
+          if (!prev.inventory_account_segment_id) {
+            const assetId = findPrimaryId('ASSETS');
+            if (assetId) next.inventory_account_segment_id = assetId;
+          }
+          return next;
+        });
+      } catch (err) {
+        console.error('Error fetching segments:', err);
+        setSegmentsError('Failed to load chart of accounts segments');
+      } finally {
+        setLoadingSegments(false);
+      }
+    };
+
+    fetchSegments();
+  }, []);
+
+  const incomeSegments = useMemo(() => {
+    const list = segments
+      .filter((segment) => segment.segment_type?.trim().toUpperCase() === 'REVENUE')
+      .slice();
+    list.sort((a, b) => Number(isPrimary(b.is_primary)) - Number(isPrimary(a.is_primary)));
+    return list;
+  }, [segments]);
+
+  const cogsSegments = useMemo(() => {
+    const list = segments
+      .filter((segment) => segment.segment_type?.trim().toUpperCase() === 'EXPENSE')
+      .slice();
+    list.sort((a, b) => Number(isPrimary(b.is_primary)) - Number(isPrimary(a.is_primary)));
+    return list;
+  }, [segments]);
+
+  const inventorySegments = useMemo(() => {
+    const list = segments
+      .filter((segment) => {
+        const type = segment.segment_type?.trim().toUpperCase();
+        return type === 'ASSETS' || type === 'ASSET';
+      })
+      .slice();
+    list.sort((a, b) => Number(isPrimary(b.is_primary)) - Number(isPrimary(a.is_primary)));
+    return list;
+  }, [segments]);
 
   const handleSave = async () => {
     setError(null);
@@ -123,6 +258,7 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
     <div className="space-y-4">
         {error && <div className="text-red-600">{error}</div>}
         {success && <div className="text-green-600">{success}</div>}
+        {segmentsError && <div className="text-red-600">{segmentsError}</div>}
         
         {/* Basic Information */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -265,16 +401,27 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
             <Select
               value={itemData.tax_status}
               onValueChange={(value) => setItemData({...itemData, tax_status: value})}
+              disabled={loadingTaxRates}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Select tax status" />
+                <SelectValue placeholder={loadingTaxRates ? "Loading tax rates..." : "Select tax status"} />
               </SelectTrigger>
               <SelectContent>
-                {taxStatuses.map(status => (
-                  <SelectItem key={status} value={status}>
-                    {status}
+                {loadingTaxRates ? (
+                  <SelectItem value="loading" disabled>
+                    Loading tax rates...
                   </SelectItem>
-                ))}
+                ) : taxRates.length > 0 ? (
+                  taxRates.map(rate => (
+                    <SelectItem key={rate.id} value={rate.rate_code}>
+                      {rate.rate_code} ({rate.tax_percentage}%)
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="no-rates" disabled>
+                    No tax rates available
+                  </SelectItem>
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -336,7 +483,115 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
           )}
         </div>
 
+        {/* Accounting Mapping */}
+        <Card className="bg-white/80 border border-gray-200/70 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg font-semibold flex items-center gap-2">
+              <Package className="w-4 h-4 text-blue-600" />
+              Accounting Links
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <Label>Income Account</Label>
+              <Select
+                value={itemData.income_account_segment_id ? String(itemData.income_account_segment_id) : ""}
+                onValueChange={(value) => setItemData({ ...itemData, income_account_segment_id: value ? parseInt(value) : undefined })}
+                disabled={loadingSegments}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={loadingSegments ? "Loading accounts..." : "Select revenue account"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {loadingSegments ? (
+                    <SelectItem value="loading" disabled>
+                      Loading accounts...
+                    </SelectItem>
+                  ) : incomeSegments.length > 0 ? (
+                    incomeSegments.map((segment) => (
+                      <SelectItem key={segment.id} value={segment.id.toString()}>
+                        {segment.segment_code} • {segment.segment_name}
+                        {(segment.is_primary === 1 || segment.is_primary === true) && (
+                          <span className="ml-2 text-xs text-green-600">Primary</span>
+                        )}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="no-income" disabled>
+                      No revenue accounts available
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
 
+            <div>
+              <Label>COGS Account</Label>
+              <Select
+                value={itemData.cogs_account_segment_id ? String(itemData.cogs_account_segment_id) : ""}
+                onValueChange={(value) => setItemData({ ...itemData, cogs_account_segment_id: value ? parseInt(value) : undefined })}
+                disabled={loadingSegments}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={loadingSegments ? "Loading accounts..." : "Select expense account"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {loadingSegments ? (
+                    <SelectItem value="loading" disabled>
+                      Loading accounts...
+                    </SelectItem>
+                  ) : cogsSegments.length > 0 ? (
+                    cogsSegments.map((segment) => (
+                      <SelectItem key={segment.id} value={segment.id.toString()}>
+                        {segment.segment_code} • {segment.segment_name}
+                        {(segment.is_primary === 1 || segment.is_primary === true) && (
+                          <span className="ml-2 text-xs text-green-600">Primary</span>
+                        )}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="no-cogs" disabled>
+                      No expense accounts available
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Inventory Account</Label>
+              <Select
+                value={itemData.inventory_account_segment_id ? String(itemData.inventory_account_segment_id) : ""}
+                onValueChange={(value) => setItemData({ ...itemData, inventory_account_segment_id: value ? parseInt(value) : undefined })}
+                disabled={loadingSegments}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={loadingSegments ? "Loading accounts..." : "Select asset account"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {loadingSegments ? (
+                    <SelectItem value="loading" disabled>
+                      Loading accounts...
+                    </SelectItem>
+                  ) : inventorySegments.length > 0 ? (
+                    inventorySegments.map((segment) => (
+                      <SelectItem key={segment.id} value={segment.id.toString()}>
+                        {segment.segment_code} • {segment.segment_name}
+                        {(segment.is_primary === 1 || segment.is_primary === true) && (
+                          <span className="ml-2 text-xs text-green-600">Primary</span>
+                        )}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="no-inventory" disabled>
+                      No asset accounts available
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="flex justify-between pt-4">
           <Button variant="outline" onClick={onClose} disabled={saving}>

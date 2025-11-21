@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS segments (
     segment_name VARCHAR(255) NOT NULL,
     segment_type ENUM('ASSETS', 'LIABILITIES', 'EQUITY', 'REVENUE', 'EXPENSE') NOT NULL,
     segment_use TEXT NULL,
+    is_primary BOOLEAN DEFAULT FALSE,
     status ENUM('ACTIVE', 'INACTIVE') DEFAULT 'ACTIVE',
     created_by INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -147,6 +148,7 @@ CREATE TABLE IF NOT EXISTS segments (
     INDEX idx_segment_code (segment_code),
     INDEX idx_segment_name (segment_name),
     INDEX idx_segment_type (segment_type),
+    INDEX idx_is_primary (is_primary),
     INDEX idx_status (status),
     INDEX idx_created_by (created_by)
 );
@@ -342,6 +344,9 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     box_quantity DECIMAL(15,2) DEFAULT 0.00,
     uom_type VARCHAR(50),
     uom_type_detail DECIMAL(15,2) DEFAULT 0.00,
+    income_account_segment_id INT NULL,
+    cogs_account_segment_id INT NULL,
+    inventory_account_segment_id INT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (supplier_id) REFERENCES ap_suppliers(supplier_id) ON DELETE SET NULL,
@@ -349,7 +354,10 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     INDEX idx_category (category),
     INDEX idx_brand (brand),
     INDEX idx_supplier_id (supplier_id),
-    INDEX idx_barcode (barcode)
+    INDEX idx_barcode (barcode),
+    INDEX idx_inventory_income_segment (income_account_segment_id),
+    INDEX idx_inventory_cogs_segment (cogs_account_segment_id),
+    INDEX idx_inventory_inventory_segment (inventory_account_segment_id)
 );
 
 -- Bin Card table
@@ -1289,6 +1297,8 @@ CREATE TABLE IF NOT EXISTS companies (
     name VARCHAR(255) NOT NULL,
     legal_name VARCHAR(255) NOT NULL,
     registration_number VARCHAR(100) UNIQUE NOT NULL,
+    strn VARCHAR(50),
+    ntn VARCHAR(50),
     country VARCHAR(100),
     currency VARCHAR(10) DEFAULT 'USD',
     fiscal_year_start DATE,
@@ -1300,6 +1310,8 @@ CREATE TABLE IF NOT EXISTS companies (
     INDEX idx_company_code (company_code),
     INDEX idx_name (name),
     INDEX idx_registration_number (registration_number),
+    INDEX idx_strn (strn),
+    INDEX idx_ntn (ntn),
     INDEX idx_country (country),
     INDEX idx_status (status),
     INDEX idx_created_by (created_by)
@@ -1317,9 +1329,6 @@ CREATE TABLE IF NOT EXISTS company_locations (
     state VARCHAR(50),
     postal_code VARCHAR(20),
     country VARCHAR(100),
-    phone VARCHAR(50),
-    email VARCHAR(255),
-    contact_person VARCHAR(255),
     is_primary BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
     status ENUM('ACTIVE', 'INACTIVE', 'SUSPENDED') DEFAULT 'ACTIVE',
@@ -1606,6 +1615,8 @@ CREATE TABLE IF NOT EXISTS tax_types (
     operating_unit VARCHAR(50),
     ledger VARCHAR(100),
     liability_account VARCHAR(100),
+    input_tax_account VARCHAR(100),
+    output_tax_account VARCHAR(100),
     rounding_account VARCHAR(100),
     is_withholding_tax BOOLEAN DEFAULT FALSE,
     is_self_assessed BOOLEAN DEFAULT FALSE,

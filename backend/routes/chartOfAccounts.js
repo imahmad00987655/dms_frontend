@@ -203,6 +203,7 @@ router.post('/segments/instances', async (req, res) => {
       segment_name, 
       segment_type, 
       segment_use,
+      is_primary,
       status,
       created_by 
     } = req.body;
@@ -222,15 +223,17 @@ router.post('/segments/instances', async (req, res) => {
         segment_name, 
         segment_type, 
         segment_use,
+        is_primary,
         status,
         created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         segment_id,
         segment_code,
         segment_name,
         segment_type,
         segment_use || null,
+        is_primary || false,
         status || 'ACTIVE',
         created_by || 1
       ]
@@ -245,6 +248,7 @@ router.post('/segments/instances', async (req, res) => {
         segment_name,
         segment_type,
         segment_use,
+        is_primary: is_primary || false,
         status: status || 'ACTIVE'
       } 
     });

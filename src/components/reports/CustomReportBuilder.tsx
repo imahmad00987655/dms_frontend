@@ -20,7 +20,7 @@ export const CustomReportBuilder = ({ onClose }: CustomReportBuilderProps) => {
     category: "",
     dataSource: "",
     columns: [] as string[],
-    filters: [] as any[],
+    filters: [] as { field: string; operator: string; value: string }[],
     groupBy: "",
     sortBy: "",
     chartType: ""

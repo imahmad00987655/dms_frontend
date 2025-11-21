@@ -33,71 +33,222 @@ router.get('/', async (req, res) => {
         }
         
         const [rows] = await pool.execute(`
-            SELECT i.*, 
-                   s.supplier_name, s.supplier_number, s.supplier_type,
-                   si.site_name as pay_to_site_name,
-                   COUNT(il.line_id) as line_count,
-                   SUM(il.total_line_amount) as calculated_total
+            SELECT 
+                i.invoice_id, 
+                i.invoice_number, 
+                i.supplier_id, 
+                i.bill_to_site_id,
+                DATE_FORMAT(i.invoice_date, '%Y-%m-%d') as invoice_date, 
+                DATE_FORMAT(i.due_date, '%Y-%m-%d') as due_date, 
+                i.payment_terms_id, 
+                i.currency_code,
+                i.exchange_rate, 
+                i.subtotal, 
+                i.tax_amount, 
+                i.total_amount,
+                i.amount_paid, 
+                i.amount_due, 
+                i.status, 
+                i.approval_status, 
+                i.notes,
+                i.created_by, 
+                i.created_at, 
+                i.updated_at,
+                s.supplier_name, 
+                s.supplier_number, 
+                s.supplier_type,
+                   si.site_name as bill_to_site_name,
+                COALESCE(line_stats.line_count, 0) as line_count,
+                COALESCE(line_stats.calculated_total, 0) as calculated_total
             FROM ap_invoices i
             LEFT JOIN ap_suppliers s ON i.supplier_id = s.supplier_id
-            LEFT JOIN ap_supplier_sites si ON i.pay_to_site_id = si.site_id
-            LEFT JOIN ap_invoice_lines il ON i.invoice_id = il.invoice_id
+            LEFT JOIN ap_supplier_sites si ON i.bill_to_site_id = si.site_id
+            LEFT JOIN (
+                SELECT 
+                    invoice_id,
+                    COUNT(line_id) as line_count,
+                    SUM(total_line_amount) as calculated_total
+                FROM ap_invoice_lines
+                GROUP BY invoice_id
+            ) line_stats ON i.invoice_id = line_stats.invoice_id
             ${whereClause}
-            GROUP BY i.invoice_id
             ORDER BY i.invoice_date DESC, i.invoice_id DESC
         `, params);
         
         res.json(rows);
     } catch (error) {
         console.error('Error fetching invoices:', error);
-        res.status(500).json({ error: 'Failed to fetch invoices' });
+        console.error('Error details:', {
+            message: error.message,
+            sqlState: error.sqlState,
+            sqlMessage: error.sqlMessage,
+            code: error.code
+        });
+        res.status(500).json({ 
+            error: 'Failed to fetch invoices',
+            details: error.message 
+        });
     }
 });
 
-// Get invoice by ID with line items
-router.get('/:id', async (req, res) => {
+// Get invoice line items (must come before /:id route)
+router.get('/:id/lines', async (req, res) => {
     try {
         const { id } = req.params;
         
-        // Get invoice header
-        const [invoiceRows] = await pool.execute(`
-            SELECT i.*, 
-                   s.supplier_name, s.supplier_number, s.supplier_type,
-                   si.site_name as pay_to_site_name, si.address_line1, si.city, si.state
-            FROM ap_invoices i
-            LEFT JOIN ap_suppliers s ON i.supplier_id = s.supplier_id
-            LEFT JOIN ap_supplier_sites si ON i.pay_to_site_id = si.site_id
-            WHERE i.invoice_id = ?
-        `, [id]);
-        
-        if (invoiceRows.length === 0) {
-            return res.status(404).json({ error: 'Invoice not found' });
-        }
-        
-        // Get line items
-        const [lineRows] = await pool.execute(`
+        const [rows] = await pool.execute(`
             SELECT * FROM ap_invoice_lines 
             WHERE invoice_id = ? 
             ORDER BY line_number
         `, [id]);
         
-        // Get payment applications
-        const [paymentRows] = await pool.execute(`
-            SELECT pa.*, p.payment_number, p.payment_date
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching invoice lines:', error);
+        res.status(500).json({ error: 'Failed to fetch invoice lines' });
+    }
+});
+
+// Get invoice payment applications (must come before /:id route)
+router.get('/:id/payments', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const [rows] = await pool.execute(`
+            SELECT pa.*, p.payment_number, p.payment_date, p.payment_method
             FROM ap_payment_applications pa
             LEFT JOIN ap_payments p ON pa.payment_id = p.payment_id
             WHERE pa.invoice_id = ? AND pa.status = 'ACTIVE'
             ORDER BY pa.applied_date
         `, [id]);
         
-        const invoice = invoiceRows[0];
-        invoice.line_items = lineRows;
-        invoice.payment_applications = paymentRows;
+        res.json(rows);
+    } catch (error) {
+        console.error('Error fetching invoice payments:', error);
+        res.status(500).json({ error: 'Failed to fetch invoice payments' });
+    }
+});
+
+// Get invoice by ID with line items (must come after specific routes)
+router.get('/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        console.log('Fetching invoice by ID:', id);
         
+        // Get invoice header - try bill_to_site_id first (actual database column), fallback to pay_to_site_id
+        let invoiceRows;
+        try {
+            // Try with bill_to_site_id first (actual database column based on phpMyAdmin)
+            [invoiceRows] = await pool.execute(`
+                SELECT i.invoice_id, i.invoice_number, i.supplier_id, i.bill_to_site_id,
+                       DATE_FORMAT(i.invoice_date, '%Y-%m-%d') as invoice_date, 
+                       DATE_FORMAT(i.due_date, '%Y-%m-%d') as due_date, 
+                       i.payment_terms_id, i.currency_code,
+                       i.exchange_rate, i.subtotal, i.tax_amount, i.total_amount,
+                       i.amount_paid, i.amount_due, i.status, i.approval_status, i.notes,
+                       i.created_by, i.created_at, i.updated_at,
+                       s.supplier_name, s.supplier_number, s.supplier_type,
+                       si.site_name as bill_to_site_name, si.address_line1, si.city, si.state
+                FROM ap_invoices i
+                LEFT JOIN ap_suppliers s ON i.supplier_id = s.supplier_id
+                LEFT JOIN ap_supplier_sites si ON i.bill_to_site_id = si.site_id
+                WHERE i.invoice_id = ?
+            `, [id]);
+        } catch (colError) {
+            console.error('Error with bill_to_site_id, trying pay_to_site_id:', colError.message);
+            // If bill_to_site_id doesn't exist, try pay_to_site_id (schema definition)
+            if (colError.code === 'ER_BAD_FIELD_ERROR' && (colError.message.includes('bill_to_site_id') || colError.message.includes('Unknown column'))) {
+                [invoiceRows] = await pool.execute(`
+            SELECT i.invoice_id, i.invoice_number, i.supplier_id, i.pay_to_site_id as bill_to_site_id,
+                           DATE_FORMAT(i.invoice_date, '%Y-%m-%d') as invoice_date, 
+                           DATE_FORMAT(i.due_date, '%Y-%m-%d') as due_date, 
+                           i.payment_terms_id, i.currency_code,
+                   i.exchange_rate, i.subtotal, i.tax_amount, i.total_amount,
+                   i.amount_paid, i.amount_due, i.status, i.approval_status, i.notes,
+                   i.created_by, i.created_at, i.updated_at,
+                   s.supplier_name, s.supplier_number, s.supplier_type,
+                   si.site_name as bill_to_site_name, si.address_line1, si.city, si.state
+            FROM ap_invoices i
+            LEFT JOIN ap_suppliers s ON i.supplier_id = s.supplier_id
+            LEFT JOIN ap_supplier_sites si ON i.pay_to_site_id = si.site_id
+            WHERE i.invoice_id = ?
+        `, [id]);
+            } else {
+                throw colError;
+            }
+        }
+        
+        if (invoiceRows.length === 0) {
+            return res.status(404).json({ error: 'Invoice not found' });
+        }
+        
+        console.log('Invoice header fetched, getting line items and payments...');
+        
+        // Get line items
+        let lineRows = [];
+        try {
+            [lineRows] = await pool.execute(`
+            SELECT * FROM ap_invoice_lines 
+            WHERE invoice_id = ? 
+            ORDER BY line_number
+        `, [id]);
+            console.log('Line items fetched:', lineRows.length);
+        } catch (lineError) {
+            console.error('Error fetching line items:', lineError);
+            // Continue without line items rather than failing completely
+        }
+        
+        // Get payment applications
+        let paymentRows = [];
+        try {
+            [paymentRows] = await pool.execute(`
+                SELECT pa.*, p.payment_number, p.payment_date
+                FROM ap_payment_applications pa
+                LEFT JOIN ap_payments p ON pa.payment_id = p.payment_id
+                WHERE pa.invoice_id = ? AND pa.status = 'ACTIVE'
+                ORDER BY pa.created_at DESC
+            `, [id]);
+            console.log('Payment applications fetched:', paymentRows.length);
+        } catch (paymentError) {
+            console.error('Error fetching payment applications:', paymentError);
+            // Try without ORDER BY if the error is about the column
+            if (paymentError.code === 'ER_BAD_FIELD_ERROR') {
+                try {
+                    [paymentRows] = await pool.execute(`
+            SELECT pa.*, p.payment_number, p.payment_date
+            FROM ap_payment_applications pa
+            LEFT JOIN ap_payments p ON pa.payment_id = p.payment_id
+            WHERE pa.invoice_id = ? AND pa.status = 'ACTIVE'
+        `, [id]);
+                    console.log('Payment applications fetched (without ORDER BY):', paymentRows.length);
+                } catch (retryError) {
+                    console.error('Error fetching payment applications (retry):', retryError);
+                }
+            }
+        }
+        
+        const invoice = invoiceRows[0];
+        // Use 'lines' to match frontend expectation (APInvoiceForm expects 'lines')
+        invoice.lines = lineRows || [];
+        invoice.line_items = lineRows || []; // Also include line_items for backward compatibility
+        invoice.payment_applications = paymentRows || [];
+        
+        console.log('Successfully fetched invoice:', invoice.invoice_id, invoice.invoice_number, 'with', lineRows.length, 'line items');
         res.json(invoice);
     } catch (error) {
         console.error('Error fetching invoice:', error);
-        res.status(500).json({ error: 'Failed to fetch invoice' });
+        console.error('Error details:', {
+            message: error.message,
+            sqlState: error.sqlState,
+            sqlMessage: error.sqlMessage,
+            code: error.code,
+            stack: error.stack
+        });
+        res.status(500).json({ 
+            error: 'Failed to fetch invoice',
+            details: error.message,
+            code: error.code
+        });
     }
 });
 
@@ -107,6 +258,7 @@ router.post('/', async (req, res) => {
         const {
             supplier_id,
             pay_to_site_id,
+            bill_to_site_id,
             invoice_number,
             invoice_date,
             due_date,
@@ -119,10 +271,13 @@ router.post('/', async (req, res) => {
             line_items
         } = req.body;
 
+        // Use bill_to_site_id if provided, otherwise use pay_to_site_id (for backward compatibility)
+        const site_id = bill_to_site_id || pay_to_site_id;
+
         // Validate required fields
-        if (!supplier_id || !pay_to_site_id || !invoice_date || !line_items || line_items.length === 0) {
+        if (!supplier_id || !site_id || !invoice_date || !line_items || line_items.length === 0) {
             return res.status(400).json({ 
-                error: 'Supplier ID, pay-to site ID, invoice date, and line items are required' 
+                error: 'Supplier ID, billing site ID, invoice date, and line items are required' 
             });
         }
 
@@ -137,10 +292,13 @@ router.post('/', async (req, res) => {
             }
         }
 
-        // Start transaction
-        await pool.execute('START TRANSACTION');
-
+        // Get a connection from the pool for transaction
+        const connection = await pool.getConnection();
+        
         try {
+            // Start transaction using query (not execute)
+            await connection.query('START TRANSACTION');
+
             // Generate invoice ID and number
             const invoiceId = await APSequenceManager.getNextInvoiceId();
             const generatedInvoiceNumber = invoice_number || APSequenceManager.generateInvoiceNumber(invoiceId);
@@ -151,14 +309,14 @@ router.post('/', async (req, res) => {
                 .toISOString().split('T')[0];
 
             // Insert invoice header
-            await pool.execute(`
+            await connection.execute(`
                 INSERT INTO ap_invoices (
-                    invoice_id, invoice_number, supplier_id, pay_to_site_id,
+                    invoice_id, invoice_number, supplier_id, bill_to_site_id,
                     invoice_date, due_date, payment_terms_id, currency_code,
                     subtotal, tax_amount, total_amount, notes, created_by
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
-                invoiceId, generatedInvoiceNumber, supplier_id, pay_to_site_id,
+                invoiceId, generatedInvoiceNumber, supplier_id, site_id,
                 invoice_date, calculatedDueDate, payment_terms_id || 30,
                 currency_code || 'USD', subtotal || 0, tax_amount || 0,
                 total_amount || 0, notes || null, 1
@@ -169,7 +327,7 @@ router.post('/', async (req, res) => {
                 const line = line_items[i];
                 const lineId = await APSequenceManager.getNextInvoiceLineId();
                 
-                await pool.execute(`
+                await connection.execute(`
                     INSERT INTO ap_invoice_lines (
                         line_id, invoice_id, line_number, item_code, item_name,
                         description, quantity, unit_price, line_amount,
@@ -183,14 +341,20 @@ router.post('/', async (req, res) => {
                 ]);
             }
 
-            await pool.execute('COMMIT');
+            // Commit transaction
+            await connection.query('COMMIT');
 
             // Fetch the created invoice with line items
-            const [newInvoice] = await pool.execute(`
-                SELECT * FROM ap_invoices WHERE invoice_id = ?
+            const [newInvoice] = await connection.execute(`
+                SELECT invoice_id, invoice_number, supplier_id, bill_to_site_id,
+                       invoice_date, due_date, payment_terms_id, currency_code,
+                       exchange_rate, subtotal, tax_amount, total_amount,
+                       amount_paid, amount_due, status, approval_status, notes,
+                       created_by, created_at, updated_at
+                FROM ap_invoices WHERE invoice_id = ?
             `, [invoiceId]);
 
-            const [lines] = await pool.execute(`
+            const [lines] = await connection.execute(`
                 SELECT * FROM ap_invoice_lines WHERE invoice_id = ?
             `, [invoiceId]);
 
@@ -199,8 +363,12 @@ router.post('/', async (req, res) => {
 
             res.status(201).json(resultInvoice);
         } catch (error) {
-            await pool.execute('ROLLBACK');
+            // Rollback transaction
+            await connection.query('ROLLBACK');
             throw error;
+        } finally {
+            // Release connection back to pool
+            connection.release();
         }
     } catch (error) {
         console.error('Error creating invoice:', error);
@@ -215,6 +383,7 @@ router.put('/:id', async (req, res) => {
         const {
             supplier_id,
             pay_to_site_id,
+            bill_to_site_id,
             invoice_number,
             invoice_date,
             due_date,
@@ -226,6 +395,9 @@ router.put('/:id', async (req, res) => {
             notes,
             line_items
         } = req.body;
+
+        // Use bill_to_site_id if provided, otherwise use pay_to_site_id (for backward compatibility)
+        const site_id = bill_to_site_id || pay_to_site_id;
 
         // Check if invoice exists
         const [existing] = await pool.execute(`
@@ -253,15 +425,18 @@ router.put('/:id', async (req, res) => {
             }
         }
 
-        // Start transaction
-        await pool.execute('START TRANSACTION');
-
+        // Get a connection from the pool for transaction
+        const connection = await pool.getConnection();
+        
         try {
+            // Start transaction using query (not execute)
+            await connection.query('START TRANSACTION');
+
             // Update invoice header
-            await pool.execute(`
+            await connection.execute(`
                 UPDATE ap_invoices SET
                     supplier_id = COALESCE(?, supplier_id),
-                    pay_to_site_id = COALESCE(?, pay_to_site_id),
+                    bill_to_site_id = COALESCE(?, bill_to_site_id),
                     invoice_number = COALESCE(?, invoice_number),
                     invoice_date = COALESCE(?, invoice_date),
                     due_date = COALESCE(?, due_date),
@@ -274,7 +449,7 @@ router.put('/:id', async (req, res) => {
                     updated_at = CURRENT_TIMESTAMP
                 WHERE invoice_id = ?
             `, [
-                supplier_id, pay_to_site_id, invoice_number, invoice_date,
+                supplier_id, site_id, invoice_number, invoice_date,
                 due_date, payment_terms_id, currency_code, subtotal,
                 tax_amount, total_amount, notes, id
             ]);
@@ -282,7 +457,7 @@ router.put('/:id', async (req, res) => {
             // Update line items if provided
             if (line_items && line_items.length > 0) {
                 // Delete existing line items
-                await pool.execute(`
+                await connection.execute(`
                     DELETE FROM ap_invoice_lines WHERE invoice_id = ?
                 `, [id]);
 
@@ -291,7 +466,7 @@ router.put('/:id', async (req, res) => {
                     const line = line_items[i];
                     const lineId = await APSequenceManager.getNextInvoiceLineId();
                     
-                    await pool.execute(`
+                    await connection.execute(`
                         INSERT INTO ap_invoice_lines (
                             line_id, invoice_id, line_number, item_code, item_name,
                             description, quantity, unit_price, line_amount,
@@ -306,14 +481,20 @@ router.put('/:id', async (req, res) => {
                 }
             }
 
-            await pool.execute('COMMIT');
+            // Commit transaction
+            await connection.query('COMMIT');
 
             // Fetch updated invoice
-            const [updatedInvoice] = await pool.execute(`
-                SELECT * FROM ap_invoices WHERE invoice_id = ?
+            const [updatedInvoice] = await connection.execute(`
+                SELECT invoice_id, invoice_number, supplier_id, bill_to_site_id,
+                       invoice_date, due_date, payment_terms_id, currency_code,
+                       exchange_rate, subtotal, tax_amount, total_amount,
+                       amount_paid, amount_due, status, approval_status, notes,
+                       created_by, created_at, updated_at
+                FROM ap_invoices WHERE invoice_id = ?
             `, [id]);
 
-            const [lines] = await pool.execute(`
+            const [lines] = await connection.execute(`
                 SELECT * FROM ap_invoice_lines WHERE invoice_id = ?
             `, [id]);
 
@@ -322,8 +503,12 @@ router.put('/:id', async (req, res) => {
 
             res.json(resultInvoice);
         } catch (error) {
-            await pool.execute('ROLLBACK');
+            // Rollback transaction
+            await connection.query('ROLLBACK');
             throw error;
+        } finally {
+            // Release connection back to pool
+            connection.release();
         }
     } catch (error) {
         console.error('Error updating invoice:', error);
@@ -337,6 +522,8 @@ router.patch('/:id/status', async (req, res) => {
         const { id } = req.params;
         const { status, approval_status } = req.body;
 
+        console.log('Status update request:', { id, status, approval_status, body: req.body });
+
         // Check if invoice exists
         const [existing] = await pool.execute(`
             SELECT invoice_id FROM ap_invoices WHERE invoice_id = ?
@@ -346,18 +533,44 @@ router.patch('/:id/status', async (req, res) => {
             return res.status(404).json({ error: 'Invoice not found' });
         }
 
+        // Validate status values against ENUM
+        // Note: Based on actual database, status may not include 'APPROVED'
+        // When approving, only update approval_status, not status
+        const validStatuses = ['DRAFT', 'PENDING', 'PAID', 'CANCELLED', 'VOID'];
+        const validApprovalStatuses = ['PENDING', 'APPROVED', 'REJECTED'];
+        
+        // If trying to set status to 'APPROVED', that's not valid for status column
+        // Only approval_status can be 'APPROVED'
+        if (status && status.toUpperCase() === 'APPROVED') {
+            return res.status(400).json({ 
+                error: "Invalid status value. 'APPROVED' is not a valid status. Use approval_status='APPROVED' instead. Valid statuses: DRAFT, PENDING, PAID, CANCELLED, VOID"
+            });
+        }
+
         // Update status
         const updateFields = [];
         const params = [];
 
-        if (status) {
+        if (status !== undefined && status !== null && status !== '') {
+            const statusUpper = String(status).toUpperCase().trim();
+            if (!validStatuses.includes(statusUpper)) {
+                return res.status(400).json({ 
+                    error: `Invalid status value '${status}'. Must be one of: ${validStatuses.join(', ')}` 
+                });
+            }
             updateFields.push('status = ?');
-            params.push(status);
+            params.push(statusUpper);
         }
 
-        if (approval_status) {
+        if (approval_status !== undefined && approval_status !== null && approval_status !== '') {
+            const approvalStatusUpper = String(approval_status).toUpperCase().trim();
+            if (!validApprovalStatuses.includes(approvalStatusUpper)) {
+                return res.status(400).json({ 
+                    error: `Invalid approval_status value '${approval_status}'. Must be one of: ${validApprovalStatuses.join(', ')}` 
+                });
+            }
             updateFields.push('approval_status = ?');
-            params.push(approval_status);
+            params.push(approvalStatusUpper);
         }
 
         if (updateFields.length === 0) {
@@ -367,19 +580,44 @@ router.patch('/:id/status', async (req, res) => {
         updateFields.push('updated_at = CURRENT_TIMESTAMP');
         params.push(id);
 
+        console.log('Executing update:', { updateFields, params });
+
         await pool.execute(`
             UPDATE ap_invoices SET ${updateFields.join(', ')} WHERE invoice_id = ?
         `, params);
 
         // Fetch updated invoice
         const [updatedInvoice] = await pool.execute(`
-            SELECT * FROM ap_invoices WHERE invoice_id = ?
+            SELECT invoice_id, invoice_number, supplier_id, bill_to_site_id,
+                   invoice_date, due_date, payment_terms_id, currency_code,
+                   exchange_rate, subtotal, tax_amount, total_amount,
+                   amount_paid, amount_due, status, approval_status, notes,
+                   created_by, created_at, updated_at
+            FROM ap_invoices WHERE invoice_id = ?
         `, [id]);
 
         res.json(updatedInvoice[0]);
     } catch (error) {
         console.error('Error updating invoice status:', error);
-        res.status(500).json({ error: 'Failed to update invoice status' });
+        console.error('Error details:', {
+            message: error.message,
+            sqlState: error.sqlState,
+            sqlMessage: error.sqlMessage,
+            code: error.code
+        });
+        
+        // Provide more specific error messages
+        if (error.code === 'WARN_DATA_TRUNCATED' || error.sqlState === '01000') {
+            return res.status(400).json({ 
+                error: 'Invalid status value. Valid statuses: DRAFT, PENDING, APPROVED, PAID, CANCELLED, VOID. Valid approval_statuses: PENDING, APPROVED, REJECTED',
+                details: error.sqlMessage
+            });
+        }
+        
+        res.status(500).json({ 
+            error: 'Failed to update invoice status',
+            details: error.message 
+        });
     }
 });
 
@@ -410,44 +648,6 @@ router.delete('/:id', async (req, res) => {
     } catch (error) {
         console.error('Error deleting invoice:', error);
         res.status(500).json({ error: 'Failed to delete invoice' });
-    }
-});
-
-// Get invoice line items
-router.get('/:id/lines', async (req, res) => {
-    try {
-        const { id } = req.params;
-        
-        const [rows] = await pool.execute(`
-            SELECT * FROM ap_invoice_lines 
-            WHERE invoice_id = ? 
-            ORDER BY line_number
-        `, [id]);
-        
-        res.json(rows);
-    } catch (error) {
-        console.error('Error fetching invoice lines:', error);
-        res.status(500).json({ error: 'Failed to fetch invoice lines' });
-    }
-});
-
-// Get invoice payment applications
-router.get('/:id/payments', async (req, res) => {
-    try {
-        const { id } = req.params;
-        
-        const [rows] = await pool.execute(`
-            SELECT pa.*, p.payment_number, p.payment_date, p.payment_method
-            FROM ap_payment_applications pa
-            LEFT JOIN ap_payments p ON pa.payment_id = p.payment_id
-            WHERE pa.invoice_id = ? AND pa.status = 'ACTIVE'
-            ORDER BY pa.applied_date
-        `, [id]);
-        
-        res.json(rows);
-    } catch (error) {
-        console.error('Error fetching invoice payments:', error);
-        res.status(500).json({ error: 'Failed to fetch invoice payments' });
     }
 });
 

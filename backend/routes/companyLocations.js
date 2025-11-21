@@ -108,9 +108,6 @@ router.post('/', async (req, res) => {
       state,
       postal_code,
       country,
-      phone,
-      email,
-      contact_person,
       is_primary,
       status,
       created_by
@@ -139,8 +136,8 @@ router.post('/', async (req, res) => {
     const sql = `
       INSERT INTO company_locations (
         company_id, location_code, location_name, location_type, address_line1, address_line2,
-        city, state, postal_code, country, phone, email, contact_person, is_primary, status, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        city, state, postal_code, country, is_primary, status, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const params = [
@@ -154,9 +151,6 @@ router.post('/', async (req, res) => {
       state || null,
       postal_code || null,
       country || null,
-      phone || null,
-      email || null,
-      contact_person || null,
       is_primary || false,
       status || 'ACTIVE',
       created_by || 1
@@ -207,9 +201,6 @@ router.put('/:id', async (req, res) => {
       state,
       postal_code,
       country,
-      phone,
-      email,
-      contact_person,
       is_primary,
       status
     } = req.body;
@@ -238,8 +229,7 @@ router.put('/:id', async (req, res) => {
     const sql = `
       UPDATE company_locations SET 
         location_code = ?, location_name = ?, location_type = ?, address_line1 = ?, address_line2 = ?,
-        city = ?, state = ?, postal_code = ?, country = ?, phone = ?, email = ?, 
-        contact_person = ?, is_primary = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+        city = ?, state = ?, postal_code = ?, country = ?, is_primary = ?, status = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `;
 
@@ -253,9 +243,6 @@ router.put('/:id', async (req, res) => {
       state || null,
       postal_code || null,
       country || null,
-      phone || null,
-      email || null,
-      contact_person || null,
       is_primary || false,
       status || 'ACTIVE',
       id

@@ -12,12 +12,15 @@ class APSequenceManager {
      * @returns {Promise<number>} - The next sequence value
      */
     static async getNextSequence(sequenceName) {
+        // Get a connection from the pool for transaction
+        const connection = await pool.getConnection();
+        
         try {
-            // Start transaction
-            await pool.execute('START TRANSACTION');
+            // Start transaction using query (not execute)
+            await connection.query('START TRANSACTION');
             
             // Update sequence value
-            const [updateResult] = await pool.execute(`
+            const [updateResult] = await connection.execute(`
                 UPDATE ar_sequences 
                 SET current_value = current_value + increment_by 
                 WHERE sequence_name = ?
@@ -28,20 +31,23 @@ class APSequenceManager {
             }
             
             // Get the updated value
-            const [rows] = await pool.execute(`
+            const [rows] = await connection.execute(`
                 SELECT current_value 
                 FROM ar_sequences 
                 WHERE sequence_name = ?
             `, [sequenceName]);
             
             // Commit transaction
-            await pool.execute('COMMIT');
+            await connection.query('COMMIT');
             
             return rows[0].current_value;
         } catch (error) {
             // Rollback on error
-            await pool.execute('ROLLBACK');
+            await connection.query('ROLLBACK');
             throw error;
+        } finally {
+            // Release connection back to pool
+            connection.release();
         }
     }
     

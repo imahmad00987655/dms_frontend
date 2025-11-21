@@ -172,11 +172,49 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       
       // Handle the response structure: { data: rows }
       const sites = response.data || response;
-      console.log('🔍 Processed supplier sites:', sites);
-      console.log('🔍 Number of sites found:', sites.length);
+      console.log('🔍 Processed supplier sites (ALL):', sites);
+      console.log('🔍 Number of sites found (ALL):', sites.length);
+      console.log('🔍 Sites breakdown:', sites.map((s: SupplierSite) => ({
+        id: s.site_id,
+        name: s.site_name,
+        type: s.site_type,
+        status: s.status,
+        is_primary: s.is_primary
+      })));
       
-      setSupplierSites(sites);
-      console.log('🔍 Updated supplierSites state with:', sites);
+      // Filter to only show ACTIVE sites
+      const activeSites = sites.filter((site: SupplierSite) => 
+        site.status === 'ACTIVE'
+      );
+      
+      console.log('🔍 Active sites (before type filter):', activeSites.length);
+      
+      // For Purchase Orders, prefer PURCHASING or BOTH type sites
+      // But if none exist, show all active sites to allow user selection
+      let purchasingSites = activeSites.filter((site: SupplierSite) => 
+        site.site_type === 'PURCHASING' || site.site_type === 'BOTH'
+      );
+      
+      // If no PURCHASING/BOTH sites, show all active sites (user can still select)
+      if (purchasingSites.length === 0 && activeSites.length > 0) {
+        console.warn('⚠️ No PURCHASING/BOTH sites found, showing all active sites');
+        purchasingSites = activeSites;
+      }
+      
+      console.log('🔍 Final sites to display:', purchasingSites.length);
+      console.log('🔍 Filtered purchasing sites:', purchasingSites);
+      
+      // If no sites after filtering, log why
+      if (purchasingSites.length === 0 && sites.length > 0) {
+        console.warn('⚠️ No sites available! Reasons:');
+        sites.forEach((site: SupplierSite) => {
+          const statusMatch = site.status === 'ACTIVE';
+          console.warn(`  - Site "${site.site_name}": type=${site.site_type}, status=${site.status} (${statusMatch ? '✓' : '✗'})`);
+        });
+      }
+      
+      setSupplierSites(purchasingSites);
+      console.log('🔍 Updated supplierSites state with:', purchasingSites);
     } catch (error) {
       console.error('❌ Error fetching supplier sites:', error);
       setSupplierSites([]);
@@ -344,6 +382,77 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     }
   }, [purchaseOrder, formData.supplier_site_id]);
 
+  // Auto-select primary site when supplierSites are loaded
+  useEffect(() => {
+    if (supplierSites.length > 0 && formData.supplier_id) {
+      // Check if the currently selected site belongs to the current supplier
+      const currentSiteBelongsToSupplier = formData.supplier_site_id && supplierSites.some(
+        site => site.site_id.toString() === formData.supplier_site_id
+      );
+      
+      // Auto-select if:
+      // 1. No site is currently selected, OR
+      // 2. The currently selected site doesn't belong to the current supplier (supplier was changed)
+      if (!formData.supplier_site_id || !currentSiteBelongsToSupplier) {
+        // Find primary site (handle boolean, number, string, or Buffer from MySQL)
+        const primarySite = supplierSites.find(site => {
+          const isPrimary: unknown = site.is_primary;
+          // Handle different types: boolean true, number 1, string '1'/'true', or Buffer
+          if (isPrimary === null || isPrimary === undefined) return false;
+          if (typeof isPrimary === 'boolean') return isPrimary === true;
+          if (typeof isPrimary === 'number') return isPrimary === 1 || isPrimary === 1.0;
+          if (typeof isPrimary === 'string') {
+            const normalized = isPrimary.trim().toLowerCase();
+            return normalized === '1' || normalized === 'true' || normalized === 'yes';
+          }
+          // Handle Buffer (MySQL sometimes returns BOOLEAN as Buffer)
+          if (Buffer.isBuffer(isPrimary)) {
+            return isPrimary[0] === 1;
+          }
+          return false;
+        });
+        
+        console.log('🔍 Auto-selection check:', {
+          supplier_id: formData.supplier_id,
+          sites_count: supplierSites.length,
+          has_primary: !!primarySite,
+          primary_site: primarySite ? { id: primarySite.site_id, name: primarySite.site_name, is_primary: primarySite.is_primary } : null,
+          all_sites: supplierSites.map(s => ({ 
+            id: s.site_id, 
+            name: s.site_name, 
+            is_primary: s.is_primary,
+            is_primary_type: typeof s.is_primary,
+            is_primary_value: s.is_primary
+          }))
+        });
+        
+        if (primarySite) {
+          // Primary site found - auto-select it
+          setFormData(prev => ({ 
+            ...prev, 
+            supplier_site_id: primarySite.site_id.toString() 
+          }));
+          setSelectedSiteName(primarySite.site_name);
+          console.log('✅ Auto-selected primary site:', primarySite.site_id, primarySite.site_name, 'is_primary:', primarySite.is_primary);
+        } else {
+          // No primary site - DO NOT auto-select, show all sites for manual selection
+          setFormData(prev => ({ 
+            ...prev, 
+            supplier_site_id: "" 
+          }));
+          setSelectedSiteName('');
+          console.log('ℹ️ No primary site found, showing all', supplierSites.length, 'sites for manual selection');
+        }
+      }
+    } else if (supplierSites.length === 0 && formData.supplier_id) {
+      // If supplier has no sites, clear the selection
+      setFormData(prev => ({ 
+        ...prev, 
+        supplier_site_id: "" 
+      }));
+      setSelectedSiteName('');
+    }
+  }, [supplierSites, formData.supplier_id, formData.supplier_site_id]);
 
   // Function to generate PO number - Smart logic
   const generatePONumber = async () => {
@@ -381,15 +490,18 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
   };
 
   const handleSupplierChange = async (supplierId: string) => {
-    // Update the supplier
+    // Clear sites first to ensure clean state
+    setSupplierSites([]);
+    
+    // Clear selected site name when supplier changes
+    setSelectedSiteName('');
+    
+    // Update the supplier and clear site selection
     setFormData(prev => ({
       ...prev,
       supplier_id: supplierId,
       supplier_site_id: '' // Clear supplier site when supplier changes
     }));
-    
-    // Clear selected site name when supplier changes
-    setSelectedSiteName('');
     
     // Fetch supplier sites for the selected supplier
     if (supplierId) {
@@ -747,11 +859,24 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                     }
                     
                     if (supplierSites && supplierSites.length > 0) {
-                      return supplierSites.map((site) => (
-                        <SelectItem key={site.site_id} value={site.site_id.toString()}>
-                          {site.site_name} {site.is_primary ? '(Primary)' : ''}
-                        </SelectItem>
-                      ));
+                      return supplierSites.map((site) => {
+                        // Check if site is primary (handle boolean, number, or string)
+                        const isPrimary: unknown = site.is_primary;
+                        let isPrimarySite = false;
+                        if (isPrimary !== null && isPrimary !== undefined) {
+                          if (typeof isPrimary === 'boolean') isPrimarySite = isPrimary === true;
+                          else if (typeof isPrimary === 'number') isPrimarySite = isPrimary === 1;
+                          else if (typeof isPrimary === 'string') {
+                            const normalized = String(isPrimary).trim().toLowerCase();
+                            isPrimarySite = normalized === '1' || normalized === 'true' || normalized === 'yes';
+                          }
+                        }
+                        return (
+                          <SelectItem key={site.site_id} value={site.site_id.toString()}>
+                            {site.site_name} {isPrimarySite ? '(Primary)' : ''}
+                          </SelectItem>
+                        );
+                      });
                     } else {
                       return (
                         <SelectItem value="no-sites" disabled>

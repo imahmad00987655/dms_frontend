@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { X, ArrowLeft, Check } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
+import { X, ArrowLeft, Check, ChevronsUpDown } from "lucide-react";
 import apiService from "@/services/api";
 import { toast } from "sonner";
 
@@ -25,7 +28,7 @@ interface APInvoice {
   total_amount: number;
   amount_paid: number;
   amount_due: number;
-  status: 'DRAFT' | 'OPEN' | 'PAID' | 'CANCELLED' | 'VOID';
+  status: 'DRAFT' | 'PENDING' | 'OPEN' | 'PAID' | 'CANCELLED' | 'VOID';
 }
 
 interface APSupplier {
@@ -69,19 +72,46 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
   const [applications, setApplications] = useState<PaymentApplication[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
+  const [supplierSearchOpen, setSupplierSearchOpen] = useState(false);
+  const [supplierSearchValue, setSupplierSearchValue] = useState("");
+
+  const loadSupplierInvoices = async (supplierId: number) => {
+    try {
+      const invoicesData = await apiService.getAPInvoices({ supplier_id: supplierId });
+      console.log('Fetched invoices for supplier:', supplierId, invoicesData);
+      
+      // Filter for invoices that can be paid:
+      // - Status should be PENDING (approved invoices ready for payment) or DRAFT (if allowed)
+      // - Must have amount_due > 0
+      // - Should not be PAID, CANCELLED, or VOID
+      const payableInvoices = invoicesData.filter(inv => {
+        const hasAmountDue = Number(inv.amount_due) > 0;
+        const isPayableStatus = inv.status === 'PENDING' || inv.status === 'DRAFT';
+        const isNotPaid = inv.status !== 'PAID' && inv.status !== 'CANCELLED' && inv.status !== 'VOID';
+        
+        console.log('Invoice filter check:', {
+          invoice_number: inv.invoice_number,
+          status: inv.status,
+          amount_due: inv.amount_due,
+          hasAmountDue,
+          isPayableStatus,
+          isNotPaid,
+          shouldShow: hasAmountDue && isPayableStatus && isNotPaid
+        });
+        
+        return hasAmountDue && isPayableStatus && isNotPaid;
+      });
+      
+      console.log('Filtered payable invoices:', payableInvoices);
+      setInvoices(payableInvoices);
+    } catch (error) {
+      console.error('Error loading supplier invoices:', error);
+      toast.error('Failed to load supplier invoices');
+    }
+  };
 
   // Load initial data
-  useEffect(() => {
-    loadInitialData();
-  }, []);
-
-  // Set payment amount when applications change
-  useEffect(() => {
-    const totalApplied = applications.reduce((sum, app) => sum + app.application_amount, 0);
-    setFormData(prev => ({ ...prev, payment_amount: totalApplied }));
-  }, [applications]);
-
-  const loadInitialData = async () => {
+  const loadInitialData = useCallback(async () => {
     try {
       setLoadingData(true);
       
@@ -114,21 +144,18 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
     } finally {
       setLoadingData(false);
     }
-  };
+  }, [selectedInvoice]);
 
-  const loadSupplierInvoices = async (supplierId: number) => {
-    try {
-      const invoicesData = await apiService.getAPInvoices({ supplier_id: supplierId });
-      // Filter for open invoices with amounts due
-      const openInvoices = invoicesData.filter(inv => 
-        inv.status === 'OPEN' && inv.amount_due > 0
-      );
-      setInvoices(openInvoices);
-    } catch (error) {
-      console.error('Error loading supplier invoices:', error);
-      toast.error('Failed to load supplier invoices');
-    }
-  };
+  // Load initial data on mount
+  useEffect(() => {
+    loadInitialData();
+  }, [loadInitialData]);
+
+  // Set payment amount when applications change
+  useEffect(() => {
+    const totalApplied = applications.reduce((sum, app) => sum + (Number(app.application_amount) || 0), 0);
+    setFormData(prev => ({ ...prev, payment_amount: totalApplied }));
+  }, [applications]);
 
   const handleSupplierChange = async (supplierId: string) => {
     setFormData(prev => ({ ...prev, supplier_id: supplierId }));
@@ -191,6 +218,7 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
       const paymentData = {
         ...formData,
         supplier_id: parseInt(formData.supplier_id),
+        total_amount: formData.payment_amount, // Backend expects total_amount
         applications: applications.map(app => ({
           invoice_id: app.invoice_id,
           application_amount: app.application_amount,
@@ -208,8 +236,8 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
     }
   };
 
-  const totalApplied = applications.reduce((sum, app) => sum + app.application_amount, 0);
-  const unappliedAmount = formData.payment_amount - totalApplied;
+  const totalApplied = applications.reduce((sum, app) => sum + (Number(app.application_amount) || 0), 0);
+  const unappliedAmount = Number(formData.payment_amount) - totalApplied;
 
   if (loadingData) {
     return (
@@ -247,18 +275,64 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
             <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="supplier">Supplier *</Label>
-                <Select value={formData.supplier_id} onValueChange={handleSupplierChange}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select supplier" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {suppliers.filter(s => s.status === 'ACTIVE').map(supplier => (
-                      <SelectItem key={supplier.supplier_id} value={supplier.supplier_id.toString()}>
-                        {supplier.supplier_name} ({supplier.supplier_number})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={supplierSearchOpen} onOpenChange={setSupplierSearchOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={supplierSearchOpen}
+                      className="w-full justify-between"
+                    >
+                      {formData.supplier_id
+                        ? suppliers.find(s => s.supplier_id.toString() === formData.supplier_id)
+                          ? `${suppliers.find(s => s.supplier_id.toString() === formData.supplier_id)?.supplier_name} (${suppliers.find(s => s.supplier_id.toString() === formData.supplier_id)?.supplier_number})`
+                          : "Select supplier..."
+                        : "Select supplier..."}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-full p-0">
+                    <Command>
+                      <CommandInput
+                        placeholder="Search by supplier name or number..."
+                        value={supplierSearchValue}
+                        onValueChange={setSupplierSearchValue}
+                      />
+                      <CommandEmpty>No supplier found.</CommandEmpty>
+                      <CommandGroup>
+                        {suppliers
+                          .filter(s => s.status === 'ACTIVE')
+                          .filter(supplier =>
+                            !supplierSearchValue ||
+                            supplier.supplier_name.toLowerCase().includes(supplierSearchValue.toLowerCase()) ||
+                            supplier.supplier_number.toLowerCase().includes(supplierSearchValue.toLowerCase())
+                          )
+                          .map((supplier) => (
+                            <CommandItem
+                              key={supplier.supplier_id}
+                              value={`${supplier.supplier_name} ${supplier.supplier_number}`}
+                              onSelect={() => {
+                                handleSupplierChange(supplier.supplier_id.toString());
+                                setSupplierSearchOpen(false);
+                                setSupplierSearchValue("");
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  formData.supplier_id === supplier.supplier_id.toString() ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <div className="flex flex-col">
+                                <span className="font-medium">{supplier.supplier_name}</span>
+                                <span className="text-sm text-gray-500">Supplier #: {supplier.supplier_number}</span>
+                              </div>
+                            </CommandItem>
+                          ))}
+                      </CommandGroup>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div className="space-y-2">
@@ -352,7 +426,8 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
               <CardContent>
                 {invoices.length === 0 ? (
                   <div className="text-center py-4 text-gray-500">
-                    No open invoices found for this supplier
+                    No payable invoices found for this supplier
+                    <p className="text-xs mt-2">(Invoices must be PENDING or DRAFT status with amount due &gt; 0)</p>
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -365,7 +440,7 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
                               Due: {new Date(invoice.due_date).toLocaleDateString()}
                             </div>
                             <div className="text-sm font-mono">
-                              Amount Due: ${invoice.amount_due.toFixed(2)}
+                              Amount Due: ${(Number(invoice.amount_due) || 0).toFixed(2)}
                             </div>
                           </div>
                           <Button
@@ -412,7 +487,7 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
                         <div className="grid grid-cols-2 gap-2 text-sm">
                           <div>
                             <Label className="text-xs">Amount Due</Label>
-                            <div className="font-mono">${app.amount_due.toFixed(2)}</div>
+                            <div className="font-mono">${(Number(app.amount_due) || 0).toFixed(2)}</div>
                           </div>
                           <div>
                             <Label className="text-xs">Apply Amount</Label>
@@ -422,7 +497,7 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
                               value={app.application_amount}
                               onChange={(e) => updateApplicationAmount(app.invoice_id, parseFloat(e.target.value) || 0)}
                               className="text-xs"
-                              max={app.amount_due}
+                              max={Number(app.amount_due) || 0}
                             />
                           </div>
                         </div>
@@ -443,16 +518,16 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <Label className="text-sm font-medium">Total Applied</Label>
-                  <div className="text-lg font-mono">${totalApplied.toFixed(2)}</div>
+                  <div className="text-lg font-mono">${(Number(totalApplied) || 0).toFixed(2)}</div>
                 </div>
                 <div>
                   <Label className="text-sm font-medium">Payment Amount</Label>
-                  <div className="text-lg font-mono">${formData.payment_amount.toFixed(2)}</div>
+                  <div className="text-lg font-mono">${(Number(formData.payment_amount) || 0).toFixed(2)}</div>
                 </div>
                 <div>
                   <Label className="text-sm font-medium">Unapplied Amount</Label>
                   <div className={`text-lg font-mono ${unappliedAmount > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                    ${unappliedAmount.toFixed(2)}
+                    ${(Number(unappliedAmount) || 0).toFixed(2)}
                   </div>
                 </div>
               </div>
