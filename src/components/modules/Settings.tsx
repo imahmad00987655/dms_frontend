@@ -111,6 +111,7 @@ const Settings = () => {
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string | null>(null);
+  const companySetupRef = React.useRef<{ activeModule: 'companies' | 'chart-of-account' | 'ledger' | null; setActiveModule: (module: 'companies' | 'chart-of-account' | 'ledger' | null) => void; chartOfAccountSetupRef?: React.MutableRefObject<{ activeSection: 'structure-definition' | 'instances-assignments' | 'header-assignments' | null; setActiveSection: (section: 'structure-definition' | 'instances-assignments' | 'header-assignments' | null) => void } | null> } | null>(null);
   const [settings, setSettings] = useState({
     // Profile settings
     firstName: "",
@@ -377,11 +378,38 @@ const Settings = () => {
       <div className="w-full space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">
-              Settings
-            </h1>
-            <p className="text-gray-600 mt-1">Manage your account and application preferences</p>
+          <div className="flex items-start gap-4">
+            {activeTab && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  // If we're in company-setup and CompanySetup has an activeModule
+                  if (activeTab === 'company-setup' && companySetupRef.current?.activeModule) {
+                    // If ChartOfAccountSetup has an activeSection, go back to ChartOfAccountSetup overview first
+                    if (companySetupRef.current.activeModule === 'chart-of-account' && 
+                        companySetupRef.current.chartOfAccountSetupRef?.current?.activeSection) {
+                      companySetupRef.current.chartOfAccountSetupRef.current.setActiveSection(null);
+                    } else {
+                      // Otherwise, go back to CompanySetup overview
+                      companySetupRef.current.setActiveModule(null);
+                    }
+                  } else {
+                    // Otherwise, go back to Settings overview
+                    setActiveTab(null);
+                  }
+                }}
+                className="h-12 w-12 mt-1 hover:bg-gray-100"
+              >
+                <ArrowLeft className="h-6 w-6 text-gray-700" />
+              </Button>
+            )}
+            <div>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">
+                Settings
+              </h1>
+              <p className="text-gray-600 mt-1">Manage your account and application preferences</p>
+            </div>
           </div>
           <Badge variant="outline" className="w-fit">
             Last updated: Today
@@ -414,18 +442,6 @@ const Settings = () => {
           </div>
         ) : (
           <Tabs value={activeTab} className="space-y-6">
-            <div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setActiveTab(null)}
-                className="flex items-center gap-2"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back to Settings
-              </Button>
-            </div>
-
             {/* Profile Settings */}
             <TabsContent value="profile" className="space-y-6">
             <Card className="bg-white/70 backdrop-blur-sm border-gray-200/50 shadow-lg">
@@ -895,7 +911,7 @@ const Settings = () => {
 
           {/* Company Setup */}
           <TabsContent value="company-setup" className="space-y-6">
-            <CompanySetup />
+            <CompanySetup onBackRef={companySetupRef} />
           </TabsContent>
 
           {/* Users & Privileges Settings */}

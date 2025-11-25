@@ -21,7 +21,11 @@ import {
   X,
   Eye,
   Edit,
-  Loader2
+  Loader2,
+  FileText,
+  Layers,
+  Link2,
+  ArrowLeft
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -99,7 +103,16 @@ interface CoAData {
 
 const API_BASE_URL = 'http://localhost:5000/api';
 
-const ChartOfAccountSetup = () => {
+interface ChartOfAccountSetupRef {
+  activeSection: 'structure-definition' | 'instances-assignments' | 'header-assignments' | null;
+  setActiveSection: (section: 'structure-definition' | 'instances-assignments' | 'header-assignments' | null) => void;
+}
+
+interface ChartOfAccountSetupProps {
+  onBackRef?: React.MutableRefObject<ChartOfAccountSetupRef | null>;
+}
+
+const ChartOfAccountSetup = ({ onBackRef }: ChartOfAccountSetupProps) => {
   const { toast } = useToast();
   
   // State for Structure Definition
@@ -132,6 +145,17 @@ const ChartOfAccountSetup = () => {
   });
 
   const [structureTab, setStructureTab] = useState<'chart-of-accounts' | 'segments'>('chart-of-accounts');
+  const [activeSection, setActiveSection] = useState<'structure-definition' | 'instances-assignments' | 'header-assignments' | null>(null);
+
+  // Expose state to parent via ref
+  useEffect(() => {
+    if (onBackRef) {
+      onBackRef.current = {
+        activeSection,
+        setActiveSection
+      };
+    }
+  }, [activeSection, onBackRef]);
 
   // State for showing/hiding segment creation form
   const [showSegmentForm, setShowSegmentForm] = useState(false);
@@ -813,17 +837,89 @@ const ChartOfAccountSetup = () => {
         <p className="text-gray-600 mt-2">Configure account structures for distribution operations</p>
       </div>
 
-      <Card className="bg-white shadow-lg">
-        <CardContent className="p-6">
-          <Tabs defaultValue="structure-definition" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="structure-definition">Structure Definition</TabsTrigger>
-              <TabsTrigger value="instances-assignments">Instances & Assignments</TabsTrigger>
-              <TabsTrigger value="header-assignments">Header Assignments</TabsTrigger>
-            </TabsList>
+      {/* Tile Navigation (shown when no section is active) */}
+      {!activeSection && (
+        <div className="space-y-6">
+          <div className="grid h-auto w-full gap-4 text-gray-900 sm:grid-cols-2 xl:grid-cols-3">
+            {/* Structure Definition Tile */}
+            <button
+              onClick={() => setActiveSection('structure-definition')}
+              className="group relative flex h-full w-full flex-col items-start gap-3 rounded-2xl border border-transparent bg-white/70 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl transition-colors bg-blue-100 text-blue-600 group-data-[state=active]:bg-blue-500 group-data-[state=active]:text-white">
+                <FileText className="h-5 w-5" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-gray-900">Structure Definition</p>
+                <p className="text-xs text-gray-500">Configure Chart of Accounts structures and segments</p>
+              </div>
+            </button>
 
-            {/* Structure Definition Tab */}
-            <TabsContent value="structure-definition" className="space-y-6">
+            {/* Instances & Assignments Tile */}
+            <button
+              onClick={() => setActiveSection('instances-assignments')}
+              className="group relative flex h-full w-full flex-col items-start gap-3 rounded-2xl border border-transparent bg-white/70 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-green-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl transition-colors bg-emerald-100 text-emerald-600 group-data-[state=active]:bg-emerald-500 group-data-[state=active]:text-white">
+                <Layers className="h-5 w-5" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-gray-900">Instances & Assignments</p>
+                <p className="text-xs text-gray-500">Create CoA instances and manage ledger assignments</p>
+              </div>
+            </button>
+
+            {/* Header Assignments Tile */}
+            <button
+              onClick={() => setActiveSection('header-assignments')}
+              className="group relative flex h-full w-full flex-col items-start gap-3 rounded-2xl border border-transparent bg-white/70 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-purple-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl transition-colors bg-purple-100 text-purple-600 group-data-[state=active]:bg-purple-500 group-data-[state=active]:text-white">
+                <Link2 className="h-5 w-5" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-gray-900">Header Assignments</p>
+                <p className="text-xs text-gray-500">Assign Chart of Accounts headers to ledgers and modules</p>
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Content Sections */}
+      {activeSection && (
+        <Card className="bg-white shadow-lg">
+          <CardContent className="p-6">
+            <div className="mb-6">
+              <div className="flex items-start gap-4">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setActiveSection(null)}
+                  className="h-12 w-12 mt-1 hover:bg-gray-100"
+                >
+                  <ArrowLeft className="h-6 w-6 text-gray-700" />
+                </Button>
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    {activeSection === 'structure-definition' && 'Structure Definition'}
+                    {activeSection === 'instances-assignments' && 'Instances & Assignments'}
+                    {activeSection === 'header-assignments' && 'Header Assignments'}
+                  </h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {activeSection === 'structure-definition' && 'Configure Chart of Accounts structures and segments'}
+                    {activeSection === 'instances-assignments' && 'Create CoA instances and manage ledger assignments'}
+                    {activeSection === 'header-assignments' && 'Assign Chart of Accounts headers to ledgers and modules'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+
+            {/* Structure Definition Section */}
+            {activeSection === 'structure-definition' && (
+              <div className="space-y-6">
               <Tabs
                 value={structureTab}
                 onValueChange={(value) => setStructureTab(value as 'chart-of-accounts' | 'segments')}
@@ -1417,10 +1513,11 @@ const ChartOfAccountSetup = () => {
                   </div>
                 </TabsContent>
               </Tabs>
-            </TabsContent>
+              </div>
+            )}
 
-            {/* Instances & Assignments Tab */}
-            <TabsContent value="instances-assignments" className="space-y-6">
+            {/* Instances & Assignments Section */}
+            {activeSection === 'instances-assignments' && (
               <div className="space-y-6">
                 {/* Header with Create Button */}
                 <div className="flex items-center justify-between">
@@ -1719,10 +1816,11 @@ const ChartOfAccountSetup = () => {
                   </CardContent>
                 </Card>
               </div>
-            </TabsContent>
+            )}
 
-            {/* Header Assignments Tab */}
-            <TabsContent value="header-assignments" className="space-y-6">
+            {/* Header Assignments Section */}
+            {activeSection === 'header-assignments' && (
+              <div className="space-y-6">
               <div>
                 <h3 className="text-lg font-semibold mb-2">Header Assignments</h3>
                 <p className="text-gray-600 mb-6">Assign Chart of Accounts headers to ledgers and financial modules.</p>
@@ -1912,12 +2010,14 @@ const ChartOfAccountSetup = () => {
                       </Button>
                     </div>
                   </div>
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
-        </div>
-      );
-    };
+              </div>
+            )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+};
 
     export default ChartOfAccountSetup;

@@ -81,29 +81,56 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
       console.log('Fetched invoices for supplier:', supplierId, invoicesData);
       
       // Filter for invoices that can be paid:
-      // - Status should be PENDING (approved invoices ready for payment) or DRAFT (if allowed)
-      // - Must have amount_due > 0
-      // - Should not be PAID, CANCELLED, or VOID
+      // - Must have amount_due > 0 (this is the primary criteria)
+      // - Status should be PENDING, DRAFT, OPEN, or PAID (if partially paid)
+      // - Should not be CANCELLED or VOID
       const payableInvoices = invoicesData.filter(inv => {
         const hasAmountDue = Number(inv.amount_due) > 0;
-        const isPayableStatus = inv.status === 'PENDING' || inv.status === 'DRAFT';
-        const isNotPaid = inv.status !== 'PAID' && inv.status !== 'CANCELLED' && inv.status !== 'VOID';
+        const isPayableStatus = inv.status === 'PENDING' || inv.status === 'DRAFT' || inv.status === 'OPEN' || inv.status === 'PAID';
+        const isNotCancelled = inv.status !== 'CANCELLED' && inv.status !== 'VOID';
+        
+        // Show invoice if it has amount due and is in a payable status (including PAID if partially paid)
+        const shouldShow = hasAmountDue && isPayableStatus && isNotCancelled;
         
         console.log('Invoice filter check:', {
           invoice_number: inv.invoice_number,
           status: inv.status,
           amount_due: inv.amount_due,
+          total_amount: inv.total_amount,
+          amount_paid: inv.amount_paid,
           hasAmountDue,
           isPayableStatus,
-          isNotPaid,
-          shouldShow: hasAmountDue && isPayableStatus && isNotPaid
+          isNotCancelled,
+          shouldShow
         });
         
-        return hasAmountDue && isPayableStatus && isNotPaid;
+        return shouldShow;
       });
       
       console.log('Filtered payable invoices:', payableInvoices);
       setInvoices(payableInvoices);
+      
+      // Update applications with latest invoice amounts (remaining due amounts)
+      setApplications(prevApplications => 
+        prevApplications.map(app => {
+          const updatedInvoice = payableInvoices.find(inv => inv.invoice_id === app.invoice_id);
+          if (updatedInvoice) {
+            // Update amount_due to reflect remaining amount
+            // If application_amount exceeds new amount_due, cap it
+            const newAmountDue = Number(updatedInvoice.amount_due) || 0;
+            const currentApplicationAmount = Number(app.application_amount) || 0;
+            return {
+              ...app,
+              amount_due: newAmountDue,
+              application_amount: Math.min(currentApplicationAmount, newAmountDue)
+            };
+          }
+          return app;
+        }).filter(app => {
+          // Remove applications for invoices that are no longer payable
+          return payableInvoices.some(inv => inv.invoice_id === app.invoice_id);
+        })
+      );
     } catch (error) {
       console.error('Error loading supplier invoices:', error);
       toast.error('Failed to load supplier invoices');
@@ -151,11 +178,20 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
     loadInitialData();
   }, [loadInitialData]);
 
-  // Set payment amount when applications change
+  // Auto-update payment amount when invoices are selected or removed
   useEffect(() => {
-    const totalApplied = applications.reduce((sum, app) => sum + (Number(app.application_amount) || 0), 0);
-    setFormData(prev => ({ ...prev, payment_amount: totalApplied }));
-  }, [applications]);
+    if (applications.length > 0) {
+      // Calculate sum of all selected invoice amounts (use amount_due from invoices, not applications)
+      const totalInvoiceAmount = applications.reduce((sum, app) => {
+        const invoice = invoices.find(inv => inv.invoice_id === app.invoice_id);
+        return sum + (Number(invoice?.amount_due) || Number(app.amount_due) || 0);
+      }, 0);
+      setFormData(prev => ({ ...prev, payment_amount: totalInvoiceAmount }));
+    } else {
+      // Reset to 0 if no invoices selected
+      setFormData(prev => ({ ...prev, payment_amount: 0 }));
+    }
+  }, [applications.length, invoices]); // Trigger when applications or invoices change
 
   const handleSupplierChange = async (supplierId: string) => {
     setFormData(prev => ({ ...prev, supplier_id: supplierId }));
@@ -175,22 +211,44 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
       return;
     }
 
-    setApplications([...applications, {
+    const newApplication = {
       invoice_id: invoice.invoice_id,
       invoice_number: invoice.invoice_number,
       amount_due: invoice.amount_due,
-      application_amount: invoice.amount_due
-    }]);
+      application_amount: invoice.amount_due // Default to full amount due
+    };
+
+    setApplications([...applications, newApplication]);
+    
+    // Update payment amount to sum of all selected invoices
+    const updatedApplications = [...applications, newApplication];
+    const totalAmount = updatedApplications.reduce((sum, app) => sum + (Number(app.amount_due) || 0), 0);
+    setFormData(prev => ({ ...prev, payment_amount: totalAmount }));
   };
 
   const removeApplication = (invoiceId: number) => {
-    setApplications(applications.filter(app => app.invoice_id !== invoiceId));
+    const updatedApplications = applications.filter(app => app.invoice_id !== invoiceId);
+    setApplications(updatedApplications);
+    
+    // Update payment amount to sum of remaining selected invoices
+    if (updatedApplications.length > 0) {
+      const totalAmount = updatedApplications.reduce((sum, app) => sum + (Number(app.amount_due) || 0), 0);
+      setFormData(prev => ({ ...prev, payment_amount: totalAmount }));
+    } else {
+      setFormData(prev => ({ ...prev, payment_amount: 0 }));
+    }
   };
 
   const updateApplicationAmount = (invoiceId: number, amount: number) => {
+    const invoice = invoices.find(inv => inv.invoice_id === invoiceId);
+    const maxAmount = invoice ? Number(invoice.amount_due) || 0 : 0;
+    
+    // Ensure amount doesn't exceed invoice amount due
+    const validAmount = Math.min(Math.max(0, amount), maxAmount);
+    
     setApplications(applications.map(app => 
       app.invoice_id === invoiceId 
-        ? { ...app, application_amount: amount }
+        ? { ...app, application_amount: validAmount }
         : app
     ));
   };
@@ -213,20 +271,46 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
       return;
     }
 
+    // Validate that application amounts don't exceed invoice amounts due
+    const invalidApplications = applications.filter(app => {
+      const invoice = invoices.find(inv => inv.invoice_id === app.invoice_id);
+      return invoice && Number(app.application_amount) > Number(invoice.amount_due);
+    });
+
+    if (invalidApplications.length > 0) {
+      toast.error('Application amounts cannot exceed invoice amounts due');
+      return;
+    }
+
     setLoading(true);
     try {
+      // Ensure all application data is valid before sending
+      const validApplications = applications.map(app => {
+        if (!app.invoice_id || app.application_amount === undefined || app.application_amount === null) {
+          throw new Error(`Invalid application data: invoice_id=${app.invoice_id}, application_amount=${app.application_amount}`);
+        }
+        return {
+          invoice_id: Number(app.invoice_id),
+          application_amount: Number(app.application_amount),
+          application_date: formData.payment_date || new Date().toISOString().split('T')[0]
+        };
+      });
+
       const paymentData = {
         ...formData,
         supplier_id: parseInt(formData.supplier_id),
         total_amount: formData.payment_amount, // Backend expects total_amount
-        applications: applications.map(app => ({
-          invoice_id: app.invoice_id,
-          application_amount: app.application_amount,
-          application_date: formData.payment_date
-        }))
+        payment_amount: formData.payment_amount, // Also send payment_amount
+        applications: validApplications
       };
 
       await apiService.createAPPayment(paymentData);
+      
+      // Reload invoices to get updated amounts after payment
+      if (formData.supplier_id) {
+        await loadSupplierInvoices(parseInt(formData.supplier_id));
+      }
+      
       onSuccess();
     } catch (error) {
       console.error('Error creating payment:', error);
@@ -236,7 +320,11 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
     }
   };
 
+  // Calculate Total Applied: sum of all application amounts
   const totalApplied = applications.reduce((sum, app) => sum + (Number(app.application_amount) || 0), 0);
+  
+  // Unapplied Amount: Payment Amount - Total Applied
+  // If applied amount is less than invoice amount, the difference shows as unapplied
   const unappliedAmount = Number(formData.payment_amount) - totalApplied;
 
   if (loadingData) {
@@ -353,6 +441,19 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
                   type="date"
                   value={formData.payment_date}
                   onChange={(e) => setFormData(prev => ({ ...prev, payment_date: e.target.value }))}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="payment_amount">Payment Amount *</Label>
+                <Input
+                  id="payment_amount"
+                  type="number"
+                  step="0.01"
+                  value={formData.payment_amount}
+                  onChange={(e) => setFormData(prev => ({ ...prev, payment_amount: parseFloat(e.target.value) || 0 }))}
+                  placeholder="Enter payment amount"
                   required
                 />
               </div>

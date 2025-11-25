@@ -28,8 +28,7 @@ import {
   Globe,
   FileText,
   Activity,
-  Loader2,
-  ArrowLeft
+  Loader2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import LocationForm from "@/components/forms/LocationForm";
@@ -72,7 +71,17 @@ interface CompanyLocation {
 
 const API_BASE_URL = 'http://localhost:5000/api';
 
-const CompanySetup = () => {
+interface CompanySetupRef {
+  activeModule: 'companies' | 'chart-of-account' | 'ledger' | null;
+  setActiveModule: (module: 'companies' | 'chart-of-account' | 'ledger' | null) => void;
+  chartOfAccountSetupRef?: React.MutableRefObject<{ activeSection: 'structure-definition' | 'instances-assignments' | 'header-assignments' | null; setActiveSection: (section: 'structure-definition' | 'instances-assignments' | 'header-assignments' | null) => void } | null>;
+}
+
+interface CompanySetupProps {
+  onBackRef?: React.MutableRefObject<CompanySetupRef | null>;
+}
+
+const CompanySetup = ({ onBackRef }: CompanySetupProps) => {
   const { toast } = useToast();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,6 +102,20 @@ const CompanySetup = () => {
 
   // Full screen module view state
   const [activeModule, setActiveModule] = useState<'companies' | 'chart-of-account' | 'ledger' | null>(null);
+  
+  // Ref for ChartOfAccountSetup
+  const chartOfAccountSetupRef = React.useRef<{ activeSection: 'structure-definition' | 'instances-assignments' | 'header-assignments' | null; setActiveSection: (section: 'structure-definition' | 'instances-assignments' | 'header-assignments' | null) => void } | null>(null);
+
+  // Expose state to parent via ref
+  useEffect(() => {
+    if (onBackRef) {
+      onBackRef.current = {
+        activeModule,
+        setActiveModule,
+        chartOfAccountSetupRef
+      };
+    }
+  }, [activeModule, onBackRef, chartOfAccountSetupRef]);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -489,19 +512,6 @@ const CompanySetup = () => {
         {/* Full Screen Module View */}
         {activeModule && (
           <div className="space-y-6">
-            {/* Back Button Header */}
-            <div className="flex items-center gap-4">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setActiveModule(null)}
-                className="flex items-center gap-2"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back
-              </Button>
-            </div>
-
             {/* Module Content */}
             {activeModule === 'companies' && (
               <div className="space-y-6">
@@ -654,7 +664,7 @@ const CompanySetup = () => {
             )}
 
             {activeModule === 'chart-of-account' && (
-              <ChartOfAccountSetup />
+              <ChartOfAccountSetup onBackRef={chartOfAccountSetupRef} />
             )}
 
             {activeModule === 'ledger' && (
@@ -666,63 +676,49 @@ const CompanySetup = () => {
         {/* Tab Navigation (shown when no module is active) */}
         {!activeModule && (
           <div className="space-y-6">
-            <Card className="bg-white/70 backdrop-blur-sm border-gray-200/50 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-2xl font-bold text-gray-900">Company Setup</CardTitle>
-                <CardDescription>Manage distributor companies and legal entities</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Companies Card */}
-                  <div
-                    onClick={() => setActiveModule('companies')}
-                    className="p-6 border rounded-lg cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-all duration-200 group"
-                  >
-                    <div className="flex flex-col items-center text-center gap-4">
-                      <div className="p-4 bg-blue-100 rounded-full group-hover:bg-blue-200 transition-colors">
-                        <Building2 className="w-8 h-8 text-blue-600" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900 mb-2">Companies</h3>
-                        <p className="text-sm text-gray-600">Manage distributor companies and their information</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Chart of Account Card */}
-                  <div
-                    onClick={() => setActiveModule('chart-of-account')}
-                    className="p-6 border rounded-lg cursor-pointer hover:bg-green-50 hover:border-green-300 transition-all duration-200 group"
-                  >
-                    <div className="flex flex-col items-center text-center gap-4">
-                      <div className="p-4 bg-green-100 rounded-full group-hover:bg-green-200 transition-colors">
-                        <FileText className="w-8 h-8 text-green-600" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900 mb-2">Chart of Account</h3>
-                        <p className="text-sm text-gray-600">Configure chart of accounts and segments</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Ledger Configurations Card */}
-                  <div
-                    onClick={() => setActiveModule('ledger')}
-                    className="p-6 border rounded-lg cursor-pointer hover:bg-purple-50 hover:border-purple-300 transition-all duration-200 group"
-                  >
-                    <div className="flex flex-col items-center text-center gap-4">
-                      <div className="p-4 bg-purple-100 rounded-full group-hover:bg-purple-200 transition-colors">
-                        <Users className="w-8 h-8 text-purple-600" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900 mb-2">Ledger Configurations</h3>
-                        <p className="text-sm text-gray-600">Manage accounting ledgers and flows</p>
-                      </div>
-                    </div>
-                  </div>
+            <div className="grid h-auto w-full gap-4 text-gray-900 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {/* Companies Card */}
+              <button
+                onClick={() => setActiveModule('companies')}
+                className="group relative flex h-full w-full flex-col items-start gap-3 rounded-2xl border border-transparent bg-white/70 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2"
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl transition-colors bg-sky-100 text-sky-600 group-data-[state=active]:bg-sky-500 group-data-[state=active]:text-white">
+                  <Building2 className="h-5 w-5" />
                 </div>
-              </CardContent>
-            </Card>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-gray-900">Companies</p>
+                  <p className="text-xs text-gray-500">Manage distributor companies and their information</p>
+                </div>
+              </button>
+
+              {/* Chart of Account Card */}
+              <button
+                onClick={() => setActiveModule('chart-of-account')}
+                className="group relative flex h-full w-full flex-col items-start gap-3 rounded-2xl border border-transparent bg-white/70 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-green-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2"
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl transition-colors bg-emerald-100 text-emerald-600 group-data-[state=active]:bg-emerald-500 group-data-[state=active]:text-white">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-gray-900">Chart of Account</p>
+                  <p className="text-xs text-gray-500">Configure chart of accounts and segments</p>
+                </div>
+              </button>
+
+              {/* Ledger Configurations Card */}
+              <button
+                onClick={() => setActiveModule('ledger')}
+                className="group relative flex h-full w-full flex-col items-start gap-3 rounded-2xl border border-transparent bg-white/70 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-purple-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2"
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl transition-colors bg-purple-100 text-purple-600 group-data-[state=active]:bg-purple-500 group-data-[state=active]:text-white">
+                  <Users className="h-5 w-5" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-gray-900">Ledger Configurations</p>
+                  <p className="text-xs text-gray-500">Manage accounting ledgers and flows</p>
+                </div>
+              </button>
+            </div>
           </div>
         )}
 
