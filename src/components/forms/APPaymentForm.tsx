@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { X, ArrowLeft, Check, ChevronsUpDown } from "lucide-react";
 import apiService from "@/services/api";
 import { toast } from "sonner";
+import { generateNextPaymentNumber } from "@/utils/numberGenerator";
 
 interface APInvoice {
   invoice_id: number;
@@ -74,6 +75,7 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
   const [loadingData, setLoadingData] = useState(true);
   const [supplierSearchOpen, setSupplierSearchOpen] = useState(false);
   const [supplierSearchValue, setSupplierSearchValue] = useState("");
+  const paymentNumberGenerated = useRef(false);
 
   const loadSupplierInvoices = async (supplierId: number) => {
     try {
@@ -177,6 +179,25 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
   useEffect(() => {
     loadInitialData();
   }, [loadInitialData]);
+
+  // Auto-generate payment number when form loads (only if not already set)
+  useEffect(() => {
+    if (!paymentNumberGenerated.current) {
+      paymentNumberGenerated.current = true;
+      generateNextPaymentNumber().then((nextNumber) => {
+        setFormData(prev => {
+          // Only update if still empty (user hasn't manually entered one)
+          if (!prev.payment_number) {
+            return { ...prev, payment_number: nextNumber };
+          }
+          return prev;
+        });
+      }).catch((error) => {
+        console.error('Failed to generate payment number:', error);
+        paymentNumberGenerated.current = false; // Reset on error so it can retry
+      });
+    }
+  }, []);
 
   // Auto-update payment amount when invoices are selected or removed
   useEffect(() => {

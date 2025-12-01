@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, Save, Send, FileText, Eye } from "lucide-react";
 import apiService from '@/services/api';
+import { generateNextInvoiceNumber } from "@/utils/numberGenerator";
 
 interface InvoiceLineItem {
   id: string;
@@ -58,7 +59,7 @@ interface InvoiceFormProps {
 
 export const InvoiceForm = ({ onClose, invoiceToView, mode = 'create' }: InvoiceFormProps) => {
   const [invoiceData, setInvoiceData] = useState({
-    invoiceNumber: `INV-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
+    invoiceNumber: "",
     customerName: "",
     invoiceDate: new Date().toISOString().split('T')[0],
     dueDate: "",
@@ -83,6 +84,7 @@ export const InvoiceForm = ({ onClose, invoiceToView, mode = 'create' }: Invoice
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
+  const invoiceNumberGenerated = useRef(false);
 
   // Load invoice data if in view mode
   useEffect(() => {
@@ -181,6 +183,25 @@ export const InvoiceForm = ({ onClose, invoiceToView, mode = 'create' }: Invoice
     };
     fetchCustomers();
   }, []);
+
+  // Auto-generate invoice number when creating a new invoice
+  useEffect(() => {
+    if (mode === 'create' && !invoiceToView && !invoiceNumberGenerated.current) {
+      invoiceNumberGenerated.current = true;
+      generateNextInvoiceNumber().then((nextNumber) => {
+        setInvoiceData(prev => {
+          // Only update if still empty (user hasn't manually entered one)
+          if (!prev.invoiceNumber) {
+            return { ...prev, invoiceNumber: nextNumber };
+          }
+          return prev;
+        });
+      }).catch((error) => {
+        console.error('Failed to generate invoice number:', error);
+        invoiceNumberGenerated.current = false; // Reset on error so it can retry
+      });
+    }
+  }, [mode, invoiceToView]);
 
   const addLineItem = () => {
     const newItem: InvoiceLineItem = {

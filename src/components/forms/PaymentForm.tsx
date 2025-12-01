@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { X, CreditCard, DollarSign } from "lucide-react";
 import apiService from "@/services/api";
 import { toast } from "sonner";
+import { generateNextPaymentNumber } from "@/utils/numberGenerator";
 
 interface VendorInvoice {
   id: number;
@@ -38,11 +39,32 @@ export const PaymentForm = ({ onClose, selectedPayable, onSuccess }: PaymentForm
     currency: selectedPayable?.currency || "USD",
     bankAccount: "",
     checkNumber: "",
-    reference: `PAY-${Date.now()}`,
+    reference: "",
     description: selectedPayable ? `Payment for ${selectedPayable.invoice_number} - ${selectedPayable.notes || 'Vendor payment'}` : "",
     approver: "",
     status: "pending"
   });
+
+  const paymentNumberGenerated = useRef(false);
+
+  // Auto-generate payment number when form loads
+  useEffect(() => {
+    if (!paymentNumberGenerated.current) {
+      paymentNumberGenerated.current = true;
+      generateNextPaymentNumber().then((nextNumber) => {
+        setFormData(prev => {
+          // Only update if still empty (user hasn't manually entered one)
+          if (!prev.reference) {
+            return { ...prev, reference: nextNumber };
+          }
+          return prev;
+        });
+      }).catch((error) => {
+        console.error('Failed to generate payment number:', error);
+        paymentNumberGenerated.current = false; // Reset on error so it can retry
+      });
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

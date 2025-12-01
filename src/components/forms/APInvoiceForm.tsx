@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { X, Plus, ArrowLeft, ChevronsUpDown, Check } from "lucide-react";
 import apiService from "@/services/api";
 import { toast } from "sonner";
+import { generateNextInvoiceNumber } from "@/utils/numberGenerator";
 
 interface APSupplier {
   supplier_id: number;
@@ -152,12 +153,32 @@ export const APInvoiceForm = ({ onClose, onSuccess, suppliers, invoiceToEdit }: 
   const [itemSearchOpen, setItemSearchOpen] = useState<{ [key: number]: boolean }>({});
   const [itemSearchValue, setItemSearchValue] = useState<{ [key: number]: string }>({});
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+  const invoiceNumberGenerated = useRef(false);
 
   // Fetch inventory items and tax rates on mount
   useEffect(() => {
     loadInventoryItems();
     loadTaxRates();
   }, []);
+
+  // Auto-generate invoice number when creating a new invoice
+  useEffect(() => {
+    if (!invoiceToEdit && !invoiceNumberGenerated.current) {
+      invoiceNumberGenerated.current = true;
+      generateNextInvoiceNumber().then((nextNumber) => {
+        setFormData(prev => {
+          // Only update if still empty (user hasn't manually entered one)
+          if (!prev.invoice_number) {
+            return { ...prev, invoice_number: nextNumber };
+          }
+          return prev;
+        });
+      }).catch((error) => {
+        console.error('Failed to generate invoice number:', error);
+        invoiceNumberGenerated.current = false; // Reset on error so it can retry
+      });
+    }
+  }, [invoiceToEdit]);
 
   const loadTaxRates = async () => {
     try {
