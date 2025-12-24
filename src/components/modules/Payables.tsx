@@ -10,10 +10,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DollarSign, AlertTriangle, Search, Filter, Download, Eye, Edit, CheckCircle } from "lucide-react";
+import { DollarSign, AlertTriangle, Search, Filter, Download, Eye, Edit, CheckCircle, XCircle, FilePenLine } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { APPaymentForm } from "@/components/forms/APPaymentForm";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { FileText } from "lucide-react";
 import { APInvoiceForm } from "@/components/forms/APInvoiceForm";
 import apiService from "@/services/api";
@@ -75,7 +81,7 @@ interface APPayment {
   payment_method?: string;
   bank_account?: string;
   reference_number?: string;
-  status: 'DRAFT' | 'APPROVED' | 'PROCESSED' | 'CANCELLED' | 'VOID';
+  status: 'DRAFT' | 'PAID';
   notes?: string;
   created_by: number;
   created_at: string;
@@ -95,6 +101,23 @@ interface APSupplier {
   status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
 }
 
+interface PaymentApplication {
+  application_id: number;
+  payment_id: number;
+  invoice_id: number;
+  applied_amount: number;
+  unapplied_amount: number;
+  applied_date: string;
+  application_date?: string;
+  status: string;
+  notes?: string;
+  invoice_number?: string;
+  invoice_date?: string;
+  invoice_total?: number;
+  amount_due?: number;
+  amount_paid?: number;
+}
+
 export const Payables = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -109,6 +132,10 @@ export const Payables = () => {
   const [loadingPayments, setLoadingPayments] = useState(true);
   const [suppliers, setSuppliers] = useState<APSupplier[]>([]);
   const [approvingInvoiceId, setApprovingInvoiceId] = useState<number | null>(null);
+  const [editingPayment, setEditingPayment] = useState<APPayment | null>(null);
+  const [viewingPayment, setViewingPayment] = useState<APPayment | null>(null);
+  const [paymentApplications, setPaymentApplications] = useState<PaymentApplication[]>([]);
+  const [loadingApplications, setLoadingApplications] = useState(false);
 
   // Fetch invoices from backend
   const fetchInvoices = async () => {
@@ -129,10 +156,12 @@ export const Payables = () => {
     try {
       setLoadingPayments(true);
       const data = await apiService.getAPPayments();
-      setPayments(data);
+      console.log('Fetched payments:', data);
+      setPayments(data || []);
     } catch (error) {
       console.error('Error fetching payments:', error);
       toast.error('Failed to fetch payments');
+      setPayments([]); // Set empty array on error
     } finally {
       setLoadingPayments(false);
     }
@@ -202,32 +231,97 @@ export const Payables = () => {
     }
   };
 
-  const handleApproveInvoice = async (invoice: APInvoice) => {
-    if (!confirm(`Are you sure you want to approve invoice ${invoice.invoice_number}?`)) {
+  const handleApproveInvoice = async (invoice: APInvoice, action: 'APPROVED' | 'REJECTED') => {
+    const actionText = action === 'APPROVED' ? 'approve' : 'reject';
+    
+    if (!confirm(`Are you sure you want to ${actionText} invoice ${invoice.invoice_number}?`)) {
       return;
     }
 
     try {
       setApprovingInvoiceId(invoice.invoice_id);
+      
       // Only update approval_status, not status
-      // If invoice is DRAFT, change status to PENDING when approving
-      const newStatus = invoice.status === 'DRAFT' ? 'PENDING' : undefined;
-      await apiService.updateAPInvoiceStatus(invoice.invoice_id, newStatus, 'APPROVED');
-      toast.success('Invoice approved successfully');
+      // Status is automatically determined by amount_due
+      await apiService.updateAPInvoiceStatus(invoice.invoice_id, undefined, action);
+      toast.success(`Invoice ${actionText}ed successfully`);
       fetchInvoices(); // Refresh the list
     } catch (error) {
-      console.error('Error approving invoice:', error);
-      toast.error('Failed to approve invoice');
+      console.error(`Error ${actionText}ing invoice:`, error);
+      const errorMessage = (error as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error || 
+                          (error as { message?: string })?.message || 
+                          `Failed to ${actionText} invoice`;
+      toast.error(errorMessage);
     } finally {
       setApprovingInvoiceId(null);
     }
   };
 
-  const handlePaymentCreated = () => {
+  const handlePaymentCreated = async (options?: { mode?: 'draft' | 'final' }) => {
     setShowPaymentForm(false);
-    fetchPayments(); // Refresh the payments list
-    fetchInvoices(); // Refresh invoices to update amounts
-    toast.success('Payment created successfully');
+    setEditingPayment(null);
+    setSelectedInvoice(null);
+    // Refresh the payments list and invoices
+    await Promise.all([
+      fetchPayments(),
+      fetchInvoices()
+    ]);
+    if (options?.mode === 'draft') {
+      toast.success('Payment saved as draft');
+    } else {
+      toast.success('Payment created successfully');
+    }
+  };
+
+  const handlePaymentUpdated = async (options?: { mode?: 'draft' | 'final' }) => {
+    setShowPaymentForm(false);
+    setEditingPayment(null);
+    setSelectedInvoice(null);
+    // Refresh the payments list and invoices
+    await Promise.all([
+      fetchPayments(),
+      fetchInvoices()
+    ]);
+    if (options?.mode === 'draft') {
+      toast.success('Payment saved as draft');
+    } else {
+      toast.success('Payment created successfully');
+    }
+  };
+
+  const handleViewPayment = async (payment: APPayment) => {
+    try {
+      // Fetch full payment details from actual payment table
+      const fullPayment = await apiService.getAPPayment(payment.payment_id);
+      setViewingPayment(fullPayment);
+      
+      // Fetch payment applications (invoices applied to this payment)
+      setLoadingApplications(true);
+      try {
+        const applications = await apiService.getAPPaymentApplications(payment.payment_id);
+        setPaymentApplications(applications);
+      } catch (error) {
+        console.error('Error fetching payment applications:', error);
+        setPaymentApplications([]);
+      } finally {
+        setLoadingApplications(false);
+      }
+    } catch (error) {
+      console.error('Error fetching payment details:', error);
+      toast.error('Failed to load payment details');
+    }
+  };
+
+  const handleEditPayment = async (payment: APPayment) => {
+    try {
+      // Fetch full payment details from actual payment table
+      const fullPayment = await apiService.getAPPayment(payment.payment_id);
+      setEditingPayment(fullPayment);
+      setShowPaymentForm(true);
+    } catch (error) {
+      console.error('Error fetching payment details:', error);
+      toast.error('Failed to load payment for editing');
+    }
   };
 
   const handleExportInvoices = () => {
@@ -297,12 +391,36 @@ export const Payables = () => {
     .filter(p => p.status !== "PAID")
     .reduce((sum, p) => sum + (Number(p.amount_due) || 0), 0);
   const overduePayables = invoices
-    .filter(p => p.status === "OPEN" && new Date(p.due_date) < new Date())
-    .reduce((sum, p) => sum + (Number(p.amount_due) || 0), 0);
+  .filter(p => {
+    // Check if due date has passed
+    const dueDate = new Date(p.due_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset time to start of day for accurate comparison
+    dueDate.setHours(0, 0, 0, 0);
+    const isOverdue = dueDate < today;
+    
+    // Check if invoice has amount due and is not fully paid
+    const hasAmountDue = Number(p.amount_due || 0) > 0;
+    
+    // Exclude PAID, CANCELLED, and VOID invoices
+    const isActive = p.status !== "PAID" && p.status !== "CANCELLED" && p.status !== "VOID";
+    
+    return isOverdue && hasAmountDue && isActive;
+  })
+  .reduce((sum, p) => sum + (Number(p.amount_due) || 0), 0);
   const pendingCount = invoices.filter(p => p.status === "OPEN").length;
 
   if (showPaymentForm) {
-    return <APPaymentForm onClose={closePaymentForm} selectedInvoice={selectedInvoice} onSuccess={handlePaymentCreated} />;
+    return <APPaymentForm 
+      onClose={() => {
+        setShowPaymentForm(false);
+        setEditingPayment(null);
+        setSelectedInvoice(null);
+      }} 
+      selectedInvoice={selectedInvoice} 
+      onSuccess={(options) => (editingPayment ? handlePaymentUpdated(options) : handlePaymentCreated(options))}
+      paymentToEdit={editingPayment}
+    />;
   }
   if (showInvoiceForm) {
     return (
@@ -534,25 +652,37 @@ export const Payables = () => {
                                 </Button>
                               )}
                               {invoice.approval_status === "PENDING" && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleApproveInvoice(invoice)}
-                                  className="h-8 w-8 p-0 text-green-600 hover:text-green-700"
-                                  title="Approve Invoice"
-                                  disabled={approvingInvoiceId === invoice.invoice_id}
-                                >
-                                  <CheckCircle className="h-4 w-4" />
-                                </Button>
-                              )}
-                              {invoice.status === "OPEN" && invoice.amount_due > 0 && (
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleCreatePayment(invoice)}
-                                  variant="default"
-                                >
-                                  Pay
-                                </Button>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0 text-green-600 hover:text-green-700"
+                                      title="Approve/Reject Invoice"
+                                      disabled={approvingInvoiceId === invoice.invoice_id}
+                                    >
+                                      <CheckCircle className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem
+                                      onClick={() => handleApproveInvoice(invoice, 'APPROVED')}
+                                      className={invoice.status === 'OPEN' ? 'text-gray-400 cursor-not-allowed' : 'text-green-600 focus:text-green-700'}
+                                      disabled={invoice.status === 'OPEN'}
+                                      title={invoice.status === 'OPEN' ? 'Invoice must be PAID before approval' : 'Approve Invoice'}
+                                    >
+                                      <CheckCircle className="h-4 w-4 mr-2" />
+                                      Approve
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() => handleApproveInvoice(invoice, 'REJECTED')}
+                                      className="text-red-600 focus:text-red-700"
+                                    >
+                                      <XCircle className="h-4 w-4 mr-2" />
+                                      Reject
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               )}
                             </div>
                           </td>
@@ -617,6 +747,7 @@ export const Payables = () => {
                         <th className="text-left py-3 px-4 font-semibold">Currency</th>
                         <th className="text-left py-3 px-4 font-semibold">Payment Method</th>
                         <th className="text-left py-3 px-4 font-semibold">Status</th>
+                        <th className="text-left py-3 px-4 font-semibold">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -638,13 +769,35 @@ export const Payables = () => {
                           <td className="py-3 px-4">{payment.payment_method || '-'}</td>
                           <td className="py-3 px-4">
                             <Badge variant={
-                              payment.status === "PROCESSED" ? "default" :
-                              payment.status === "APPROVED" ? "secondary" :
-                              payment.status === "DRAFT" ? "outline" :
-                              payment.status === "CANCELLED" ? "destructive" : "secondary"
+                              payment.status === "PAID" ? "default" :
+                              payment.status === "DRAFT" ? "outline" : "secondary"
                             }>
                               {payment.status}
                             </Badge>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleViewPayment(payment)}
+                                className="h-8 w-8 p-0"
+                                title="View Payment"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              {payment.status === "DRAFT" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleEditPayment(payment)}
+                                  className="h-8 w-8 p-0"
+                                  title="Edit Draft Payment"
+                                >
+                                  <FilePenLine className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -776,6 +929,148 @@ export const Payables = () => {
                 <div>
                   <p className="text-sm text-gray-500 mb-2">Notes</p>
                   <p className="text-sm">{viewingInvoice.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* View Payment Dialog */}
+      <Dialog open={!!viewingPayment} onOpenChange={(open) => {
+        if (!open) {
+          setViewingPayment(null);
+          setPaymentApplications([]);
+        }
+      }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Payment Details - {viewingPayment?.payment_number}</DialogTitle>
+          </DialogHeader>
+          {viewingPayment && (
+            <div className="space-y-6">
+              {/* Payment Header */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-gray-500">Payment Number</p>
+                  <p className="font-medium">{viewingPayment.payment_number}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Payment Date</p>
+                  <p className="font-medium">{new Date(viewingPayment.payment_date).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Supplier</p>
+                  <p className="font-medium">{viewingPayment.supplier_name}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Status</p>
+                  <Badge variant={
+                    viewingPayment.status === "PAID" ? "default" :
+                    viewingPayment.status === "DRAFT" ? "outline" : "secondary"
+                  }>
+                    {viewingPayment.status}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Currency</p>
+                  <p className="font-medium">{viewingPayment.currency_code}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Exchange Rate</p>
+                  <p className="font-medium">{viewingPayment.exchange_rate}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Payment Method</p>
+                  <p className="font-medium">{viewingPayment.payment_method || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Bank Account</p>
+                  <p className="font-medium">{viewingPayment.bank_account || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Reference Number</p>
+                  <p className="font-medium">{viewingPayment.reference_number || '-'}</p>
+                </div>
+              </div>
+
+              {/* Payment Applications (Invoices) */}
+              {loadingApplications ? (
+                <div className="text-center py-4">
+                  <div className="text-gray-500">Loading invoice applications...</div>
+                </div>
+              ) : paymentApplications.length > 0 ? (
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Applied Invoices</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-2 px-4">Invoice Number</th>
+                          <th className="text-right py-2 px-4">Amount Due</th>
+                          <th className="text-right py-2 px-4">Applied Amount</th>
+                          <th className="text-left py-2 px-4">Application Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paymentApplications.map((app, index) => {
+                          const appliedAmount = Number(app.applied_amount) || 0;
+                          const unappliedAmount = Number(app.unapplied_amount) || 0;
+                          
+                          return (
+                            <tr key={app.application_id || index} className="border-b hover:bg-gray-50">
+                              <td className="py-2 px-4 font-medium">{app.invoice_number || app.invoice_id}</td>
+                              <td className="py-2 px-4 text-right font-medium">${unappliedAmount.toFixed(2)}</td>
+                              <td className="py-2 px-4 text-right font-semibold">${appliedAmount.toFixed(2)}</td>
+                              <td className="py-2 px-4">
+                                {app.applied_date || app.application_date ? new Date(app.applied_date || app.application_date).toLocaleDateString() : '-'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-4 text-gray-500">
+                  No invoices applied to this payment
+                </div>
+              )}
+
+              {/* Payment Amounts */}
+              <div className="border-t pt-4">
+                <div className="flex justify-end">
+                  <div className="w-80">
+                    <div className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 rounded-lg p-5 border border-indigo-200 shadow-sm">
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-semibold text-gray-700">Payment Amount:</span>
+                          <span className="text-lg font-bold text-gray-900 whitespace-nowrap">${(Number(viewingPayment.payment_amount) || 0).toFixed(2)} {viewingPayment.currency_code}</span>
+                        </div>
+                        <div className="border-t border-indigo-200 pt-4">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm font-semibold text-gray-700">Amount Applied:</span>
+                            <span className="text-lg font-bold text-blue-600 whitespace-nowrap">${(Number(viewingPayment.amount_applied) || 0).toFixed(2)} {viewingPayment.currency_code}</span>
+                          </div>
+                        </div>
+                        <div className="border-t border-indigo-200 pt-4">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm font-semibold text-gray-700">Unapplied Amount:</span>
+                            <span className="text-lg font-bold text-red-600 whitespace-nowrap">${(Number(viewingPayment.unapplied_amount) || 0).toFixed(2)} {viewingPayment.currency_code}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notes */}
+              {viewingPayment.notes && (
+                <div>
+                  <p className="text-sm text-gray-500 mb-2">Notes</p>
+                  <p className="text-sm">{viewingPayment.notes}</p>
                 </div>
               )}
             </div>

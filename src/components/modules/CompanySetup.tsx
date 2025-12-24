@@ -79,9 +79,13 @@ interface CompanySetupRef {
 
 interface CompanySetupProps {
   onBackRef?: React.MutableRefObject<CompanySetupRef | null>;
+  onActiveModuleChange?: (module: 'companies' | 'chart-of-account' | 'ledger' | null) => void;
+  onChartOfAccountSectionChange?: (
+    section: 'structure-definition' | 'instances-assignments' | 'header-assignments' | null
+  ) => void;
 }
 
-const CompanySetup = ({ onBackRef }: CompanySetupProps) => {
+const CompanySetup = ({ onBackRef, onActiveModuleChange, onChartOfAccountSectionChange }: CompanySetupProps) => {
   const { toast } = useToast();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,7 +119,11 @@ const CompanySetup = ({ onBackRef }: CompanySetupProps) => {
         chartOfAccountSetupRef
       };
     }
-  }, [activeModule, onBackRef, chartOfAccountSetupRef]);
+    // Notify parent component about active module changes
+    if (onActiveModuleChange) {
+      onActiveModuleChange(activeModule);
+    }
+  }, [activeModule, onBackRef, chartOfAccountSetupRef, onActiveModuleChange]);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -523,9 +531,6 @@ const CompanySetup = ({ onBackRef }: CompanySetupProps) => {
                       <Building2 className="w-5 h-5 text-blue-600" />
                       Company Directory
                     </CardTitle>
-                    <CardDescription>
-                      Manage all distributor companies and their information
-                    </CardDescription>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="relative">
@@ -664,7 +669,10 @@ const CompanySetup = ({ onBackRef }: CompanySetupProps) => {
             )}
 
             {activeModule === 'chart-of-account' && (
-              <ChartOfAccountSetup onBackRef={chartOfAccountSetupRef} />
+              <ChartOfAccountSetup 
+                onBackRef={chartOfAccountSetupRef}
+                onSectionChange={onChartOfAccountSectionChange}
+              />
             )}
 
             {activeModule === 'ledger' && (

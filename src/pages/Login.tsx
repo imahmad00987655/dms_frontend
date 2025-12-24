@@ -43,12 +43,14 @@ const Login = () => {
       // Redirect to intended page or dashboard
       const from = location.state?.from?.pathname || "/dashboard";
       navigate(from, { replace: true });
-    } catch (error: any) {
+    } catch (error) {
       console.error("Login error:", error);
+      
+      const errorMessage = error instanceof Error ? error.message : "Invalid email or password. Please try again.";
       
       toast({
         title: "Login Failed",
-        description: error.message || "Invalid email or password. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

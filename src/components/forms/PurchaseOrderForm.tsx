@@ -5,9 +5,11 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2 } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
+import { cn } from '@/lib/utils';
+import { Plus, X, ArrowLeft, Check, ChevronsUpDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import apiService from '../../services/api.js';
 
@@ -17,6 +19,14 @@ interface User {
   last_name: string;
   email: string;
   role: string;
+}
+
+interface Company {
+  id: number;
+  name: string;
+  legal_name?: string;
+  company_code?: string;
+  status?: string;
 }
 
 interface Supplier {
@@ -65,7 +75,6 @@ interface PurchaseOrder {
   currency_code?: string;
   exchange_rate?: number;
   total_amount?: number;
-  amount_remaining?: number;
   description?: string;
   notes?: string;
   status?: string;
@@ -82,6 +91,29 @@ interface PurchaseOrderFormProps {
   onCancel: () => void;
 }
 
+interface InventoryItem {
+  id: number;
+  item_code: string;
+  item_name: string;
+  description?: string;
+  item_purchase_rate?: number;
+  item_sell_price?: number;
+  category?: string;
+  tax_status?: string;
+  box_quantity?: number;
+  packet_quantity?: number;
+  uom_type?: string;
+  brand?: string; // This stores supplier_id as string
+  supplier_id?: number;
+}
+
+interface TaxRate {
+  id: number;
+  rate_code: string;
+  tax_percentage: number;
+  status: string;
+}
+
 interface POLine {
   line_number: number;
   item_id?: number;
@@ -90,15 +122,13 @@ interface POLine {
   description: string;
   quantity: number;
   uom: string;
+  box_quantity: number;
+  packet_quantity: number;
   unit_price: number;
   line_amount: number;
   tax_rate: number;
   tax_amount: number;
-  gst_rate: number;
-  gst_amount: number;
-  quantity_received: number;
-  quantity_remaining: number;
-  need_by_date: string;
+  quantity_received?: number;
 }
 
 export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
@@ -117,12 +147,11 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     party_id: '', // Add party_id field
     buyer_id: '',
     requisition_id: 'none',
-    po_date: '',
+    po_date: new Date().toISOString().split('T')[0], // Auto-set to current date
     need_by_date: '',
     currency_code: 'USD',
     exchange_rate: '1.0',
     total_amount: '0',
-    amount_remaining: '0', // Always start with 0 for new purchase orders
     description: '',
     notes: '',
     status: 'DRAFT',
@@ -133,19 +162,18 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
   const [supplierSites, setSupplierSites] = useState<SupplierSite[]>([]);
   const [loadingSupplierSites, setLoadingSupplierSites] = useState(false);
   const [selectedSiteName, setSelectedSiteName] = useState<string>('');
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [itemSearchOpen, setItemSearchOpen] = useState<{ [key: number]: boolean }>({});
+  const [itemSearchValue, setItemSearchValue] = useState<{ [key: number]: string }>({});
+  const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
   const { toast } = useToast();
   const lastFetchedSupplierId = useRef<number | null>(null);
+  const initialSupplierIdWhenItemsAdded = useRef<string | null>(null);
 
-  // Mock inventory items - in a real app, this would come from props or API
-  const inventoryItems = [
-    { item_id: 1, item_code: 'ITEM001', item_name: 'Laptop Computer', uom: 'EA' },
-    { item_id: 2, item_code: 'ITEM002', item_name: 'Office Chair', uom: 'EA' },
-    { item_id: 3, item_code: 'ITEM003', item_name: 'Printer Paper', uom: 'BOX' },
-    { item_id: 4, item_code: 'ITEM004', item_name: 'Ink Cartridges', uom: 'EA' },
-    { item_id: 5, item_code: 'ITEM005', item_name: 'Desk Lamp', uom: 'EA' },
-  ];
-
-  const uomOptions = ['EA', 'BOX', 'KG', 'L', 'M', 'PCS', 'SET', 'ROLL', 'BAG', 'CAN'];
+  const uomOptions = ['PCS', 'Bottles'];
 
   // Helper function to get status value with proper fallback
   const getStatusValue = (value: string | undefined | null, fallback: string): string => {
@@ -264,12 +292,11 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         party_id: purchaseOrder.party_id?.toString() || '', // Set party_id
         buyer_id: purchaseOrder.buyer_id?.toString() || '',
         requisition_id: purchaseOrder.requisition_id?.toString() || 'none',
-        po_date: purchaseOrder.po_date ? purchaseOrder.po_date.split('T')[0] : '',
+        po_date: purchaseOrder.po_date ? purchaseOrder.po_date.split('T')[0] : new Date().toISOString().split('T')[0],
         need_by_date: purchaseOrder.need_by_date ? purchaseOrder.need_by_date.split('T')[0] : '',
         currency_code: purchaseOrder.currency_code || 'USD',
         exchange_rate: purchaseOrder.exchange_rate?.toString() || '1.0',
         total_amount: purchaseOrder.total_amount?.toString() || '0',
-        amount_remaining: purchaseOrder.amount_remaining?.toString() || '0',
         description: purchaseOrder.description || '',
         notes: purchaseOrder.notes || '',
         status: getStatusValue(purchaseOrder.status, 'DRAFT'),
@@ -294,13 +321,29 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       
       setFormData(formDataToSet);
       
-      // Process lines to format dates properly for HTML date inputs
+      // Process lines - remove old fields and keep only the ones we need
       const processedLines = (purchaseOrder.lines || []).map(line => ({
-        ...line,
-        need_by_date: line.need_by_date ? line.need_by_date.split('T')[0] : ''
+        line_number: line.line_number,
+        item_id: line.item_id,
+        item_name: line.item_name || '',
+        item_code: line.item_code || '',
+        description: line.description || '',
+        quantity: Number(line.quantity) || 0,
+        uom: line.uom || 'PCS',
+        box_quantity: Number(line.box_quantity ?? 0) || 0,
+        packet_quantity: Number(line.packet_quantity ?? 0) || 0,
+        unit_price: Number(line.unit_price) || 0,
+        line_amount: Number(line.line_amount) || 0,
+        tax_rate: Number(line.tax_rate) || 0,
+        tax_amount: Number(line.tax_amount) || 0,
+        quantity_received: Number(line.quantity_received ?? 0) || 0
       }));
       setLines(processedLines);
       
+      // Set initial supplier if lines exist (for editing existing PO)
+      if (processedLines.length > 0 && processedLines.some(line => line.item_code || line.item_name) && purchaseOrder.supplier_id) {
+        initialSupplierIdWhenItemsAdded.current = purchaseOrder.supplier_id.toString();
+      }
       
       // Fetch supplier sites immediately when editing existing PO
       if (purchaseOrder.supplier_id) {
@@ -321,22 +364,81 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         line_number: 1,
         item_id: undefined,
         item_name: '',
-        item_code: 'ITEM001',
+        item_code: '',
         description: '',
         quantity: 1,
-        uom: 'EA',
+        uom: 'PCS',
+        box_quantity: 0,
+        packet_quantity: 0,
         unit_price: 0,
         line_amount: 0,
         tax_rate: 0,
-        tax_amount: 0,
-        gst_rate: 0,
-        gst_amount: 0,
-        quantity_received: 0,
-        quantity_remaining: 1,
-        need_by_date: ''
+        tax_amount: 0
       }]);
     }
   }, [purchaseOrder, fetchSupplierSites, fetchSiteNameById]);
+
+  // Load inventory items and tax rates on mount
+  const loadInventoryItems = useCallback(async () => {
+    setInventoryLoading(true);
+    try {
+      const response = await apiService.getInventoryItems();
+      let items: InventoryItem[] = [];
+      
+      if (response.success && response.data) {
+        items = response.data;
+      } else if (Array.isArray(response)) {
+        items = response;
+      } else if (response.data) {
+        items = Array.isArray(response.data) ? response.data : [];
+      }
+      
+      setInventoryItems(items);
+    } catch (error) {
+      console.error('Error loading inventory items:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load inventory items",
+        variant: "destructive"
+      });
+    } finally {
+      setInventoryLoading(false);
+    }
+  }, [toast]);
+
+  const loadTaxRates = useCallback(async () => {
+    try {
+      const response = await apiService.getTaxRates();
+      const rates = response?.data || (Array.isArray(response) ? response : []);
+      setTaxRates(rates);
+    } catch (error) {
+      console.error('Error loading tax rates:', error);
+    }
+  }, []);
+
+  const loadCompanies = useCallback(async () => {
+    try {
+      setLoadingCompanies(true);
+      const response = await apiService.getCompanies({ status: 'Active' });
+      const companiesList = response?.data || (Array.isArray(response) ? response : []);
+      setCompanies(companiesList);
+    } catch (error) {
+      console.error('Error loading companies:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load companies",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingCompanies(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    loadInventoryItems();
+    loadTaxRates();
+    loadCompanies();
+  }, [loadInventoryItems, loadTaxRates, loadCompanies]);
 
   // Fetch supplier sites when supplier changes
   useEffect(() => {
@@ -490,6 +592,25 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
   };
 
   const handleSupplierChange = async (supplierId: string) => {
+    // Check if items have been added and supplier is being changed
+    if (lines.length > 0 && lines.some(line => line.item_code || line.item_name)) {
+      // Check if this is a different supplier than when items were added
+      if (initialSupplierIdWhenItemsAdded.current && 
+          initialSupplierIdWhenItemsAdded.current !== supplierId) {
+        toast({
+          title: "Warning",
+          description: "Cannot change supplier after items have been added. Please remove all line items first or create a new purchase order.",
+          variant: "destructive"
+        });
+        // Reset to the original supplier
+        setFormData(prev => ({
+          ...prev,
+          supplier_id: initialSupplierIdWhenItemsAdded.current || ''
+        }));
+        return;
+      }
+    }
+    
     // Clear sites first to ensure clean state
     setSupplierSites([]);
     
@@ -512,23 +633,21 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
   };
 
   const addLine = () => {
+    const newLineNumber = Math.max(...lines.map(l => l.line_number), 0) + 1;
     const newLine: POLine = {
-      line_number: lines.length + 1,
+      line_number: newLineNumber,
       item_id: undefined,
       item_name: '',
-      item_code: `ITEM${String(lines.length + 1).padStart(3, '0')}`,
+      item_code: '',
       description: '',
       quantity: 1,
-      uom: 'EA',
+      uom: 'PCS',
+      box_quantity: 0,
+      packet_quantity: 0,
       unit_price: 0,
       line_amount: 0,
       tax_rate: 0,
-      tax_amount: 0,
-      gst_rate: 0,
-      gst_amount: 0,
-      quantity_received: 0,
-      quantity_remaining: 1,
-      need_by_date: ''
+      tax_amount: 0
     };
     setLines([...lines, newLine]);
   };
@@ -541,26 +660,42 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       line_number: i + 1
     }));
     setLines(renumberedLines);
+    
+    // If all items are removed, reset the initial supplier tracking
+    const hasItems = renumberedLines.some(line => line.item_code || line.item_name);
+    if (!hasItems) {
+      initialSupplierIdWhenItemsAdded.current = null;
+    }
   };
 
   const updateLine = (index: number, field: keyof POLine, value: string | number) => {
+    // Validate supplier is selected before allowing item name entry
+    if (field === 'item_name' && value && typeof value === 'string' && value.trim() && !formData.supplier_id) {
+      toast({
+        title: "Validation Error",
+        description: "Please select a supplier first before entering item name.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
     const newLines = [...lines];
-    newLines[index] = {
-      ...newLines[index],
-      [field]: value
-    };
+    newLines[index] = { ...newLines[index], [field]: value };
     
-    // Calculate line amount and remaining quantity
-    if (field === 'quantity' || field === 'unit_price') {
-      const quantity = field === 'quantity' ? Number(value) : newLines[index].quantity;
-      const unitPrice = field === 'unit_price' ? Number(value) : newLines[index].unit_price;
-      newLines[index].line_amount = quantity * unitPrice;
-      newLines[index].quantity_remaining = quantity - newLines[index].quantity_received;
+    // Track the supplier when item_name is manually entered (not from dropdown)
+    if (field === 'item_name' && value && typeof value === 'string' && value.trim() && formData.supplier_id) {
+      if (!initialSupplierIdWhenItemsAdded.current) {
+        initialSupplierIdWhenItemsAdded.current = formData.supplier_id;
+      }
     }
     
-    if (field === 'quantity_received') {
-      newLines[index].quantity_remaining = newLines[index].quantity - Number(value);
-    }
+    // Calculate line amount and tax
+    const line = newLines[index];
+    // Calculate quantity from boxes × packets
+    const calculatedQuantity = (line.box_quantity || 0) * (line.packet_quantity || 0);
+    line.quantity = calculatedQuantity; // Keep quantity field for backend compatibility
+    line.line_amount = calculatedQuantity * line.unit_price;
+    line.tax_amount = line.line_amount * (line.tax_rate / 100);
     
     setLines(newLines);
     
@@ -572,9 +707,6 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     setFormData(prev => ({
       ...prev,
       total_amount: total.toString(),
-      // For new purchase orders, amount_remaining should be 0 initially
-      // For existing purchase orders, calculate based on received quantities
-      amount_remaining: purchaseOrder ? remaining.toString() : '0'
     }));
   };
 
@@ -665,33 +797,42 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     
     if (!validateForm()) return;
 
+    // Check if supplier was changed after items were added
+    if (initialSupplierIdWhenItemsAdded.current && 
+        initialSupplierIdWhenItemsAdded.current !== formData.supplier_id &&
+        lines.some(line => line.item_code || line.item_name)) {
+      toast({
+        title: "Validation Error",
+        description: "Cannot create purchase order. Supplier was changed after items were added. Please remove all line items first or create a new purchase order.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       const payload = {
         ...formData,
         total_amount: parseFloat(formData.total_amount),
-        amount_remaining: parseFloat(formData.amount_remaining),
         exchange_rate: parseFloat(formData.exchange_rate),
         supplier_id: parseInt(formData.supplier_id),
         supplier_site_id: parseInt(formData.supplier_site_id),
         buyer_id: parseInt(formData.buyer_id),
         requisition_id: formData.requisition_id && formData.requisition_id !== 'none' ? parseInt(formData.requisition_id) : null,
-        lines: lines.map(line => {
-          const processedLine = {
-            ...line,
+        lines: lines.map(line => ({
+          line_number: line.line_number,
+          item_code: line.item_code || null,
+          item_name: line.item_name,
+          description: line.description || null,
             quantity: Math.round((parseFloat(line.quantity.toString()) || 0) * 100) / 100,
+          uom: line.uom,
+          box_quantity: Math.round((parseFloat(line.box_quantity.toString()) || 0) * 100) / 100,
+          packet_quantity: Math.round((parseFloat(line.packet_quantity.toString()) || 0) * 100) / 100,
             unit_price: Math.round((parseFloat(line.unit_price.toString()) || 0) * 100) / 100,
             line_amount: Math.round((parseFloat(line.line_amount.toString()) || 0) * 100) / 100,
-            quantity_received: Math.round((parseFloat(line.quantity_received.toString()) || 0) * 100) / 100,
-            quantity_remaining: Math.round((parseFloat(line.quantity_remaining.toString()) || 0) * 100) / 100,
             tax_rate: Math.round((parseFloat(line.tax_rate?.toString() || '0') || 0) * 100) / 100,
-            tax_amount: Math.round((parseFloat(line.tax_amount?.toString() || '0') || 0) * 100) / 100,
-            gst_rate: Math.round((parseFloat(line.gst_rate?.toString() || '0') || 0) * 100) / 100,
-            gst_amount: Math.round((parseFloat(line.gst_amount?.toString() || '0') || 0) * 100) / 100
-          };
-          console.log('Processed line for API:', processedLine);
-          return processedLine;
-        })
+          tax_amount: Math.round((parseFloat(line.tax_amount?.toString() || '0') || 0) * 100) / 100
+        }))
       };
 
       console.log('Complete payload being sent to API:', payload);
@@ -726,8 +867,38 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     }
   };
 
+  // Calculate totals when lines change
+  useEffect(() => {
+    const subtotal = lines.reduce((sum, line) => sum + line.line_amount, 0);
+    const taxAmount = lines.reduce((sum, line) => sum + line.tax_amount, 0);
+    const totalAmount = subtotal + taxAmount;
+
+    setFormData(prev => ({
+      ...prev,
+      total_amount: totalAmount.toString(),
+    }));
+  }, [lines]);
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 max-h-[calc(90vh-120px)] overflow-y-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" style={{ top: 0, margin: 0 }}>
+      <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto" style={{ marginTop: 0 }}>
+        <div className="p-6 border-b">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={onCancel}>
+                <ArrowLeft className="w-4 h-4" />
+              </Button>
+              <h2 className="text-xl font-semibold">{purchaseOrder ? 'Edit Purchase Order' : 'Create Purchase Order'}</h2>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="sm" onClick={onCancel}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Basic Information */}
         <Card className="lg:col-span-1">
@@ -800,7 +971,12 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   {suppliers && suppliers.length > 0 ? (
-                    suppliers.map((supplier) => (
+                    suppliers
+                      .filter(supplier => 
+                        supplier.supplier_type && 
+                        supplier.supplier_type.toLowerCase() === 'vendor'
+                      )
+                      .map((supplier) => (
                       <SelectItem key={supplier.supplier_id} value={supplier.supplier_id.toString()}>
                         {supplier.supplier_name}
                       </SelectItem>
@@ -896,14 +1072,16 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                   <SelectValue placeholder="Select buyer" />
                 </SelectTrigger>
                 <SelectContent>
-                  {users && users.length > 0 ? (
-                    users.map((user) => (
-                      <SelectItem key={user.id} value={user.id.toString()}>
-                        {user.first_name} {user.last_name}
+                  {loadingCompanies ? (
+                    <SelectItem value="loading" disabled>Loading companies...</SelectItem>
+                  ) : companies && companies.length > 0 ? (
+                    companies.map((company) => (
+                      <SelectItem key={company.id} value={company.id.toString()}>
+                        {company.name}
                       </SelectItem>
                     ))
                   ) : (
-                    <SelectItem value="no-users" disabled>No users available</SelectItem>
+                    <SelectItem value="no-companies" disabled>No companies available</SelectItem>
                   )}
                 </SelectContent>
               </Select>
@@ -984,20 +1162,6 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
               />
             </div>
 
-            <div>
-              <Label htmlFor="amount_remaining" className="text-sm">Amount Remaining</Label>
-              <Input
-                id="amount_remaining"
-                type="number"
-                step="0.01"
-                min="0"
-                value={formData.amount_remaining}
-                onChange={(e) => handleInputChange('amount_remaining', e.target.value)}
-                placeholder="0.00"
-                readOnly
-                className="h-9 bg-gray-50"
-              />
-            </div>
           </CardContent>
         </Card>
       </div>
@@ -1058,105 +1222,218 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
               </Select>
             </div>
 
-            <div>
-              <Label htmlFor="approval_status" className="text-sm">Approval Status</Label>
-              <Select value={formData.approval_status} onValueChange={(value) => handleInputChange('approval_status', value)}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Select approval status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="PENDING">Pending</SelectItem>
-                  <SelectItem value="APPROVED">Approved</SelectItem>
-                  <SelectItem value="REJECTED">Rejected</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Line Items */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Line Items</CardTitle>
-          <CardDescription className="text-sm">
-            Add items to be purchased
-          </CardDescription>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Line Items</CardTitle>
+            <Button type="button" variant="outline" size="sm" onClick={addLine}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Line
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            <Button type="button" variant="outline" onClick={addLine} className="w-full h-9">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Line Item
-            </Button>
-
-            {lines.length > 0 && (
-              <div className="border rounded-lg overflow-hidden">
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-16 text-xs">Line</TableHead>
-                        <TableHead className="w-48 text-xs">Item *</TableHead>
-                        <TableHead className="w-48 text-xs">Description</TableHead>
-                        <TableHead className="w-20 text-xs">Qty *</TableHead>
-                        <TableHead className="w-20 text-xs">UOM</TableHead>
-                        <TableHead className="w-32 text-xs">Unit Price</TableHead>
-                        <TableHead className="w-32 text-xs">Amount</TableHead>
-                        <TableHead className="w-24 text-xs">Tax Rate %</TableHead>
-                        <TableHead className="w-24 text-xs">Tax Amount</TableHead>
-                        <TableHead className="w-24 text-xs">GST Rate %</TableHead>
-                        <TableHead className="w-24 text-xs">GST Amount</TableHead>
-                        <TableHead className="w-24 text-xs">Received</TableHead>
-                        <TableHead className="w-24 text-xs">Remaining</TableHead>
-                        <TableHead className="w-32 text-xs">Need By</TableHead>
-                        <TableHead className="w-16 text-xs">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+          <div className="space-y-4">
                       {lines.map((line, index) => (
-                        <TableRow key={index}>
-                          <TableCell className="text-xs">{line.line_number}</TableCell>
-                          <TableCell>
-                            <div className="space-y-1">
+              <div key={index} className="relative space-y-3 border p-4 rounded-lg">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (lines.length > 1) {
+                      const newLines = lines.filter((_, i) => i !== index);
+                      const renumberedLines = newLines.map((line, i) => ({
+                        ...line,
+                        line_number: i + 1
+                      }));
+                      setLines(renumberedLines);
+                    }
+                  }}
+                  disabled={lines.length === 1}
+                  className="absolute top-2 right-2 h-8 w-8 p-0"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+                {/* First Row */}
+                <div className="grid grid-cols-12 gap-2 items-start">
+                  <div className="col-span-1">
+                    <Label className="text-xs">Line</Label>
                               <Input
-                                value={line.item_code || `ITEM${String(index + 1).padStart(3, '0')}`}
-                                placeholder="Item Code"
-                                className="h-9 text-sm min-w-[100px]"
-                                readOnly
-                              />
+                      value={line.line_number}
+                      disabled
+                      className="text-xs"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Label className="text-xs">Item Code</Label>
+                    <Popover 
+                      open={itemSearchOpen[index] || false} 
+                      onOpenChange={(open) => {
+                        // Check if supplier is selected before allowing item selection
+                        if (open && !formData.supplier_id) {
+                          toast({
+                            title: "Validation Error",
+                            description: "Please select a supplier first before selecting items.",
+                            variant: "destructive"
+                          });
+                          return;
+                        }
+                        setItemSearchOpen(prev => ({ ...prev, [index]: open }));
+                      }}
+                    >
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className={cn(
+                            "w-full justify-between text-xs h-9 overflow-hidden",
+                            !line.item_code && "text-muted-foreground"
+                          )}
+                          disabled={!formData.supplier_id}
+                        >
+                          <span className="truncate flex-1 text-left">{line.item_code || "Search item..."}</span>
+                          <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50 flex-shrink-0" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[300px] p-0">
+                        <Command>
+                          <CommandInput 
+                            placeholder="Search by item code or name..." 
+                            value={itemSearchValue[index] || ""}
+                            onValueChange={(value) => setItemSearchValue(prev => ({ ...prev, [index]: value }))}
+                          />
+                          <CommandEmpty>
+                            {formData.supplier_id 
+                              ? "No items found for this supplier." 
+                              : "Please select a supplier first to view available items."}
+                          </CommandEmpty>
+                          <CommandGroup>
+                            {inventoryItems
+                              .filter(item => {
+                                // Filter by search term
+                                const matchesSearch = !itemSearchValue[index] || 
+                                  item.item_code?.toLowerCase().includes(itemSearchValue[index].toLowerCase()) ||
+                                  item.item_name?.toLowerCase().includes(itemSearchValue[index].toLowerCase());
+                                
+                                // Filter by selected supplier
+                                // brand field stores supplier_id as string, or we can use supplier_id field
+                                const matchesSupplier = !formData.supplier_id || 
+                                  (item.brand && item.brand.toString() === formData.supplier_id) ||
+                                  (item.supplier_id && item.supplier_id.toString() === formData.supplier_id);
+                                
+                                return matchesSearch && matchesSupplier;
+                              })
+                              .map((item) => (
+                                <CommandItem
+                                  key={item.id}
+                                  value={`${item.item_code} ${item.item_name}`}
+                                  onSelect={() => {
+                                    // Validate supplier is selected before allowing item selection
+                                    if (!formData.supplier_id) {
+                                      toast({
+                                        title: "Validation Error",
+                                        description: "Please select a supplier first before selecting items.",
+                                        variant: "destructive"
+                                      });
+                                      setItemSearchOpen(prev => ({ ...prev, [index]: false }));
+                                      return;
+                                    }
+                                    
+                                    // Track the supplier when first item is added
+                                    if (!initialSupplierIdWhenItemsAdded.current && formData.supplier_id) {
+                                      initialSupplierIdWhenItemsAdded.current = formData.supplier_id;
+                                    }
+                                    
+                                    const newLines = [...lines];
+                                    const line = { ...newLines[index] };
+                                    
+                                    line.item_code = item.item_code;
+                                    line.item_name = item.item_name;
+                                    if (item.description) {
+                                      line.description = item.description;
+                                    }
+                                    if (item.item_purchase_rate) {
+                                      line.unit_price = item.item_purchase_rate;
+                                    }
+                                    if (item.uom_type) {
+                                      line.uom = item.uom_type;
+                                    }
+                                    // Don't auto-populate box_quantity and packet_quantity - let user enter manually
+                                    // line.box_quantity and line.packet_quantity remain at their default values (0)
+                                    
+                                    // Auto-populate tax rate from item's tax_status
+                                    if (item.tax_status && taxRates.length > 0) {
+                                      let taxRate = taxRates.find(rate => 
+                                        rate.rate_code === item.tax_status || 
+                                        rate.rate_code === item.tax_status.trim()
+                                      );
+                                      
+                                      if (!taxRate) {
+                                        taxRate = taxRates.find(rate => 
+                                          rate.rate_code.toLowerCase() === item.tax_status.toLowerCase()
+                                        );
+                                      }
+                                      
+                                      if (taxRate) {
+                                        line.tax_rate = taxRate.tax_percentage;
+                                      }
+                                    }
+                                    
+                                    // Recalculate line amount and tax
+                                    // Calculate quantity from boxes × packets
+                                    const calculatedQuantity = (line.box_quantity || 0) * (line.packet_quantity || 0);
+                                    line.quantity = calculatedQuantity; // Keep quantity field for backend compatibility
+                                    line.line_amount = calculatedQuantity * line.unit_price;
+                                    line.tax_amount = line.line_amount * (line.tax_rate / 100);
+                                    
+                                    newLines[index] = line;
+                                    setLines(newLines);
+                                    
+                                    setItemSearchOpen(prev => ({ ...prev, [index]: false }));
+                                    setItemSearchValue(prev => ({ ...prev, [index]: '' }));
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4",
+                                      line.item_code === item.item_code ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">{item.item_code}</span>
+                                    <span className="text-sm text-gray-500">{item.item_name}</span>
+                                  </div>
+                                </CommandItem>
+                              ))}
+                          </CommandGroup>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="col-span-3">
+                    <Label className="text-xs">Item Name *</Label>
                               <Input
                                 value={line.item_name}
                                 onChange={(e) => updateLine(index, 'item_name', e.target.value)}
                                 placeholder="Enter item name"
-                                className="h-9 text-sm min-w-[180px]"
-                              />
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={line.description}
-                              onChange={(e) => updateLine(index, 'description', e.target.value)}
-                              placeholder="Description"
-                              className="h-9 text-sm min-w-[180px]"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              min="1"
-                              value={line.quantity}
-                              onChange={(e) => updateLine(index, 'quantity', parseInt(e.target.value) || 0)}
                               required
-                              className="h-9 text-sm min-w-[80px]"
+                      disabled={!!line.item_code || !formData.supplier_id}
+                      className="text-xs"
                             />
-                          </TableCell>
-                          <TableCell>
+                  </div>
+                  <div className="col-span-1">
+                    <Label className="text-xs">UOM</Label>
                             <Select 
                               value={line.uom} 
                               onValueChange={(value) => updateLine(index, 'uom', value)}
                             >
-                              <SelectTrigger className="h-9 text-sm min-w-[80px]">
+                      <SelectTrigger className="text-xs h-9">
                                 <SelectValue placeholder="UOM" />
                               </SelectTrigger>
                               <SelectContent>
@@ -1167,127 +1444,142 @@ export const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                                 ))}
                               </SelectContent>
                             </Select>
-                          </TableCell>
-                          <TableCell>
+                  </div>
+                  <div className="col-span-2">
+                    <Label className="text-xs">Number of Boxes</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                      step="1"
+                      value={line.box_quantity}
+                      onChange={(e) => updateLine(index, 'box_quantity', parseFloat(e.target.value) || 0)}
+                      placeholder="0"
+                      className="text-xs"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Label className="text-xs">
+                      {line.uom === 'Bottles' ? 'Number of Bottles' : 'Number of Packets'}
+                    </Label>
+                            <Input
+                              type="number"
+                              min="0"
+                      step="1"
+                      value={line.packet_quantity}
+                      onChange={(e) => updateLine(index, 'packet_quantity', parseFloat(e.target.value) || 0)}
+                      placeholder="0"
+                      className="text-xs"
+                    />
+                  </div>
+                  <div className="col-span-1"></div>
+                </div>
+
+                {/* Second Row */}
+                <div className="grid grid-cols-12 gap-2 items-start">
+                  <div className="col-span-4">
+                    <Label className="text-xs">Description</Label>
+                    <Textarea
+                      value={line.description || ""}
+                      onChange={(e) => updateLine(index, 'description', e.target.value)}
+                      placeholder="Optional description"
+                      disabled={!!line.item_code}
+                      className="text-xs"
+                      rows={2}
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Label className="text-xs">Unit Price</Label>
                             <Input
                               type="number"
                               step="0.01"
-                              min="0"
-                              value={line.unit_price}
-                              onChange={(e) => updateLine(index, 'unit_price', parseFloat(e.target.value) || 0)}
-                              className="h-9 text-sm min-w-[100px]"
-                            />
-                          </TableCell>
-                          <TableCell>
+                      value={line.unit_price}
+                      onChange={(e) => updateLine(index, 'unit_price', parseFloat(e.target.value) || 0)}
+                      placeholder="0.00"
+                      disabled={!!line.item_code}
+                      className="text-xs"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Label className="text-xs">Tax %</Label>
                             <Input
                               type="number"
                               step="0.01"
-                              min="0"
-                              value={line.line_amount}
-                              readOnly
-                              className="h-9 text-sm min-w-[100px] bg-gray-50"
-                            />
-                          </TableCell>
-                          <TableCell>
+                      value={line.tax_rate}
+                      onChange={(e) => updateLine(index, 'tax_rate', parseFloat(e.target.value) || 0)}
+                      placeholder="0"
+                      disabled={!!line.item_code}
+                      className="text-xs"
+                    />
+                  </div>
+                  <div className="col-span-4"></div>
+                </div>
+                
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  <div>
+                    <Label className="text-xs">Line Amount</Label>
                             <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              max="100"
-                              value={line.tax_rate}
-                              onChange={(e) => updateLine(index, 'tax_rate', parseFloat(e.target.value) || 0)}
-                              className="h-9 text-sm min-w-[80px]"
-                            />
-                          </TableCell>
-                          <TableCell>
+                      value={(Number(line.line_amount) || 0).toFixed(2)}
+                      disabled
+                      className="text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Tax Amount</Label>
                             <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={line.tax_amount}
-                              onChange={(e) => updateLine(index, 'tax_amount', parseFloat(e.target.value) || 0)}
-                              className="h-9 text-sm min-w-[80px]"
-                            />
-                          </TableCell>
-                          <TableCell>
+                      value={(Number(line.tax_amount) || 0).toFixed(2)}
+                      disabled
+                      className="text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Total</Label>
                             <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              max="100"
-                              value={line.gst_rate}
-                              onChange={(e) => updateLine(index, 'gst_rate', parseFloat(e.target.value) || 0)}
-                              className="h-9 text-sm min-w-[80px]"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={line.gst_amount}
-                              onChange={(e) => updateLine(index, 'gst_amount', parseFloat(e.target.value) || 0)}
-                              className="h-9 text-sm min-w-[80px]"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              min="0"
-                              max={line.quantity}
-                              value={line.quantity_received}
-                              onChange={(e) => updateLine(index, 'quantity_received', parseInt(e.target.value) || 0)}
-                              className="h-9 text-sm min-w-[80px]"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              min="0"
-                              value={line.quantity_remaining}
-                              readOnly
-                              className="h-9 text-sm min-w-[80px] bg-gray-50"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="date"
-                              value={line.need_by_date}
-                              onChange={(e) => updateLine(index, 'need_by_date', e.target.value)}
-                              className="h-9 text-sm min-w-[120px]"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => removeLine(index)}
-                              className="h-8 w-8 p-0"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      value={((Number(line.line_amount) || 0) + (Number(line.tax_amount) || 0)).toFixed(2)}
+                      disabled
+                      className="text-xs font-mono font-bold"
+                    />
                 </div>
               </div>
-            )}
+              </div>
+            ))}
+                </div>
+        </CardContent>
+      </Card>
+
+          {/* Totals */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Purchase Order Totals</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Subtotal</Label>
+                  <div className="text-lg font-mono">${(lines.reduce((sum, line) => sum + (Number(line.line_amount) || 0), 0)).toFixed(2)}</div>
+              </div>
+                <div>
+                  <Label className="text-sm font-medium">Tax Amount</Label>
+                  <div className="text-lg font-mono">${(lines.reduce((sum, line) => sum + (Number(line.tax_amount) || 0), 0)).toFixed(2)}</div>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Total Amount</Label>
+                  <div className="text-xl font-mono font-bold">${(Number(formData.total_amount) || 0).toFixed(2)}</div>
+                </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Form Actions */}
-      <div className="flex justify-end gap-3 pt-4 border-t sticky bottom-0 bg-white">
-        <Button type="button" variant="outline" onClick={onCancel} className="h-9">
+          {/* Actions */}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" disabled={loading} className="h-9">
-          {loading ? 'Saving...' : (purchaseOrder ? 'Update Purchase Order' : 'Create Purchase Order')}
+            <Button type="submit" disabled={loading}>
+              {loading ? (purchaseOrder ? "Updating..." : "Creating...") : (purchaseOrder ? "Update Purchase Order" : "Create Purchase Order")}
         </Button>
       </div>
     </form>
+      </div>
+    </div>
   );
 }; 

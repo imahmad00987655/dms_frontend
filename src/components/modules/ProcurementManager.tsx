@@ -17,6 +17,7 @@ import {
   Building2,
   AlertCircle,
   CheckCircle,
+  XCircle,
   Clock,
   X,
   BarChart3
@@ -40,6 +41,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface User {
   id: number;
@@ -92,6 +99,8 @@ interface POLine {
   item_code?: string;
   description: string;
   quantity: number;
+  box_quantity: number;
+  packet_quantity: number;
   uom: string;
   unit_price: number;
   line_amount: number;
@@ -103,6 +112,22 @@ interface POLine {
   quantity_remaining: number;
   need_by_date: string;
 }
+
+// Raw purchase order line shape coming from the backend
+type RawPOLine = POLine & {
+  quantity?: number | string;
+  box_quantity?: number | string;
+  packet_quantity?: number | string;
+  unit_price?: number | string;
+  line_amount?: number | string;
+  tax_rate?: number | string;
+  tax_amount?: number | string;
+  gst_rate?: number | string;
+  gst_amount?: number | string;
+  quantity_received?: number | string;
+  quantity_remaining?: number | string;
+  need_by_date?: string | null;
+};
 
 interface RequisitionLine {
   line_number: number;
@@ -195,6 +220,9 @@ interface GRNLine {
   quantity_rejected: number;
   unit_price: number;
   line_amount: number;
+  // Optional tax fields if the backend provides them
+  tax_rate?: number;
+  tax_amount?: number;
   lot_number: string;
   serial_number: string;
   expiration_date: string;
@@ -203,10 +231,19 @@ interface GRNLine {
   notes: string;
 }
 
+// Raw GRN line shape coming from the backend
+type RawGRNLine = GRNLine & {
+  po_item_name?: string;
+  po_quantity?: number | string;
+  po_unit_price?: number | string;
+};
+
 interface GRN {
   receipt_id?: number;
   receipt_number?: string;
   header_id?: number;
+  po_number?: string;
+  supplier_name?: string;
   receipt_date?: string;
   receipt_type?: string;
   currency_code?: string;
@@ -220,7 +257,8 @@ interface GRN {
 type ProcurementType = 'agreements' | 'orders' | 'requisitions' | 'grns';
 
 const ProcurementManager: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<ProcurementType>('agreements');
+  {/*const [activeTab, setActiveTab] = useState<ProcurementType>('agreements');*/}    
+  const [activeTab, setActiveTab] = useState<ProcurementType>('orders');
   const [showForm, setShowForm] = useState(false);
   const [showViewForm, setShowViewForm] = useState(false);
   const [editingItem, setEditingItem] = useState<PurchaseAgreement | PurchaseOrder | PurchaseRequisition | GRN | null>(null);
@@ -238,6 +276,7 @@ const ProcurementManager: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [approvingOrderId, setApprovingOrderId] = useState<number | null>(null);
 
   // Helper function to properly handle date conversion without timezone issues
   const formatDateForForm = (dateString: string | null | undefined): string => {
@@ -352,6 +391,20 @@ const ProcurementManager: React.FC = () => {
       fetchData();
     } catch (error) {
       console.error(`Error deleting ${itemType}:`, error);
+    }
+  };
+
+  const handleApproveOrder = async (order: PurchaseOrder, approvalStatus: 'APPROVED' | 'REJECTED') => {
+    if (!order.header_id) return;
+    
+    try {
+      setApprovingOrderId(order.header_id);
+      await apiService.updatePurchaseOrderStatus(order.header_id, undefined, approvalStatus);
+      fetchData();
+    } catch (error) {
+      console.error('Error updating purchase order approval status:', error);
+    } finally {
+      setApprovingOrderId(null);
     }
   };
 
@@ -484,6 +537,127 @@ const ProcurementManager: React.FC = () => {
         };
         setViewingItem(transformedItem as unknown as PurchaseAgreement | PurchaseOrder | PurchaseRequisition);
       }
+    } else if (activeTab === 'orders') {
+      const orderItem = item as PurchaseOrder;
+      try {
+        if (!orderItem.header_id) {
+          setViewingItem(orderItem);
+        } else {
+          const fullOrder = await apiService.getPurchaseOrder(orderItem.header_id);
+
+          const transformedLines: POLine[] = Array.isArray(fullOrder.lines)
+            ? (fullOrder.lines as RawPOLine[]).map((line) => ({
+                line_number: line.line_number,
+                item_id: line.item_id,
+                item_name: line.item_name || '',
+                item_code: line.item_code || '',
+                description: line.description || '',
+                quantity:
+                  typeof line.quantity === 'number'
+                    ? line.quantity
+                    : parseFloat(String(line.quantity)) || 0,
+                box_quantity:
+                  typeof line.box_quantity === 'number'
+                    ? line.box_quantity
+                    : parseFloat(String(line.box_quantity)) || 0,
+                packet_quantity:
+                  typeof line.packet_quantity === 'number'
+                    ? line.packet_quantity
+                    : parseFloat(String(line.packet_quantity)) || 0,
+                uom: line.uom || 'PCS',
+                unit_price:
+                  typeof line.unit_price === 'number'
+                    ? line.unit_price
+                    : parseFloat(String(line.unit_price)) || 0,
+                line_amount:
+                  typeof line.line_amount === 'number'
+                    ? line.line_amount
+                    : parseFloat(String(line.line_amount)) || 0,
+                tax_rate:
+                  typeof line.tax_rate === 'number'
+                    ? line.tax_rate
+                    : line.tax_rate !== undefined
+                    ? parseFloat(String(line.tax_rate)) || 0
+                    : 0,
+                tax_amount:
+                  typeof line.tax_amount === 'number'
+                    ? line.tax_amount
+                    : line.tax_amount !== undefined
+                    ? parseFloat(String(line.tax_amount)) || 0
+                    : 0,
+                gst_rate:
+                  typeof line.gst_rate === 'number'
+                    ? line.gst_rate
+                    : line.gst_rate !== undefined
+                    ? parseFloat(String(line.gst_rate)) || 0
+                    : 0,
+                gst_amount:
+                  typeof line.gst_amount === 'number'
+                    ? line.gst_amount
+                    : line.gst_amount !== undefined
+                    ? parseFloat(String(line.gst_amount)) || 0
+                    : 0,
+                quantity_received:
+                  typeof line.quantity_received === 'number'
+                    ? line.quantity_received
+                    : parseFloat(String(line.quantity_received)) || 0,
+                quantity_remaining:
+                  typeof line.quantity_remaining === 'number'
+                    ? line.quantity_remaining
+                    : parseFloat(String(line.quantity_remaining)) || 0,
+                need_by_date:
+                  line.need_by_date && line.need_by_date !== 'null'
+                    ? (typeof line.need_by_date === 'string'
+                        ? (line.need_by_date.includes('T')
+                            ? line.need_by_date.split('T')[0]
+                            : line.need_by_date)
+                        : new Date(line.need_by_date).toISOString().split('T')[0])
+                    : '',
+              }))
+            : [];
+
+          const transformedOrder: PurchaseOrder = {
+            header_id: fullOrder.header_id || orderItem.header_id,
+            po_number: fullOrder.po_number || orderItem.po_number,
+            po_type: fullOrder.po_type || orderItem.po_type || 'STANDARD',
+            supplier_id: fullOrder.supplier_id || orderItem.supplier_id,
+            supplier_name: fullOrder.supplier_name || orderItem.supplier_name,
+            buyer_id: fullOrder.buyer_id || orderItem.buyer_id,
+            requisition_id: fullOrder.requisition_id || orderItem.requisition_id,
+            po_date: formatDateForForm(fullOrder.po_date || orderItem.po_date),
+            need_by_date: formatDateForForm(fullOrder.need_by_date || orderItem.need_by_date),
+            currency_code: fullOrder.currency_code || orderItem.currency_code || 'USD',
+            exchange_rate:
+              typeof fullOrder.exchange_rate === 'number'
+                ? fullOrder.exchange_rate
+                : typeof fullOrder.exchange_rate === 'string'
+                ? parseFloat(fullOrder.exchange_rate || '1.0') || orderItem.exchange_rate || 1.0
+                : orderItem.exchange_rate || 1.0,
+            total_amount:
+              typeof fullOrder.total_amount === 'number'
+                ? fullOrder.total_amount
+                : typeof fullOrder.total_amount === 'string'
+                ? parseFloat(fullOrder.total_amount || '0') || orderItem.total_amount || 0
+                : orderItem.total_amount || 0,
+            amount_remaining:
+              typeof fullOrder.amount_remaining === 'number'
+                ? fullOrder.amount_remaining
+                : typeof fullOrder.amount_remaining === 'string'
+                ? parseFloat(fullOrder.amount_remaining || '0') || orderItem.amount_remaining
+                : orderItem.amount_remaining,
+            description: fullOrder.description || orderItem.description,
+            notes: fullOrder.notes || orderItem.notes,
+            status: fullOrder.status || orderItem.status,
+            approval_status: fullOrder.approval_status || orderItem.approval_status,
+            lines: transformedLines,
+          };
+
+          setViewingItem(transformedOrder as unknown as PurchaseAgreement | PurchaseOrder | PurchaseRequisition | GRN);
+        }
+      } catch (error) {
+        console.error('Error fetching full purchase order data for view:', error);
+        setViewingItem(orderItem);
+      }
     } else if (activeTab === 'requisitions') {
       const requisitionItem = item as PurchaseRequisition;
       const transformedItem = {
@@ -521,7 +695,89 @@ const ProcurementManager: React.FC = () => {
       };
       setViewingItem(transformedItem as unknown as PurchaseAgreement | PurchaseOrder | PurchaseRequisition);
     } else if (activeTab === 'grns') {
-      setViewingItem(item);
+      const grnItem = item as GRN;
+      try {
+        if (!grnItem.receipt_id) {
+          setViewingItem(grnItem);
+        } else {
+          const fullGRN = await apiService.getGRN(grnItem.receipt_id);
+
+          const transformedLines: GRNLine[] = Array.isArray(fullGRN.lines)
+            ? fullGRN.lines.map((line: RawGRNLine) => ({
+                line_id: line.line_id,
+                line_number: line.line_number,
+                item_code: line.item_code || '',
+                item_name: line.item_name || line.po_item_name || '',
+                description: line.description || '',
+                uom: line.uom || 'EA',
+                quantity_ordered:
+                  typeof line.quantity_ordered === 'number'
+                    ? line.quantity_ordered
+                    : parseFloat(line.quantity_ordered) || 0,
+                quantity_received:
+                  typeof line.quantity_received === 'number'
+                    ? line.quantity_received
+                    : parseFloat(line.quantity_received) || 0,
+                quantity_accepted:
+                  typeof line.quantity_accepted === 'number'
+                    ? line.quantity_accepted
+                    : parseFloat(line.quantity_accepted) || 0,
+                quantity_rejected:
+                  typeof line.quantity_rejected === 'number'
+                    ? line.quantity_rejected
+                    : parseFloat(line.quantity_rejected) || 0,
+                unit_price:
+                  typeof line.unit_price === 'number'
+                    ? line.unit_price
+                    : parseFloat(line.unit_price) || 0,
+                line_amount:
+                  typeof line.line_amount === 'number'
+                    ? line.line_amount
+                    : parseFloat(line.line_amount) || 0,
+                // Map optional tax fields if present so we can show tax in GRN view
+                tax_rate:
+                  typeof line.tax_rate === 'number'
+                    ? line.tax_rate
+                    : line.tax_rate !== undefined
+                    ? parseFloat(String(line.tax_rate)) || 0
+                    : undefined,
+                tax_amount:
+                  typeof line.tax_amount === 'number'
+                    ? line.tax_amount
+                    : line.tax_amount !== undefined
+                    ? parseFloat(String(line.tax_amount)) || 0
+                    : undefined,
+                lot_number: line.lot_number || '',
+                serial_number: line.serial_number || '',
+                expiration_date: formatDateForForm(line.expiration_date),
+                status: line.status || 'DRAFT',
+                rejection_reason: line.rejection_reason || '',
+                notes: line.notes || '',
+              }))
+            : [];
+
+          const transformedGRN: GRN = {
+            receipt_id: fullGRN.receipt_id || grnItem.receipt_id,
+            receipt_number: fullGRN.receipt_number || grnItem.receipt_number,
+            header_id: fullGRN.header_id || grnItem.header_id,
+            po_number: fullGRN.po_number || grnItem.po_number,
+            supplier_name: fullGRN.supplier_name || grnItem.supplier_name,
+            receipt_date: formatDateForForm(fullGRN.receipt_date || grnItem.receipt_date),
+            receipt_type: fullGRN.receipt_type || grnItem.receipt_type || 'STANDARD',
+            currency_code: fullGRN.currency_code || grnItem.currency_code || 'USD',
+            exchange_rate: fullGRN.exchange_rate || grnItem.exchange_rate || 1.0,
+            total_amount: fullGRN.total_amount || grnItem.total_amount || 0,
+            status: fullGRN.status || grnItem.status || 'DRAFT',
+            notes: fullGRN.notes || grnItem.notes || '',
+            lines: transformedLines,
+          };
+
+          setViewingItem(transformedGRN);
+        }
+      } catch (error) {
+        console.error('Error fetching full GRN data for view:', error);
+        setViewingItem(grnItem);
+      }
     } else {
       setViewingItem(item);
     }
@@ -757,7 +1013,92 @@ const ProcurementManager: React.FC = () => {
       };
       setEditingItem(transformedItem as unknown as PurchaseAgreement | PurchaseOrder | PurchaseRequisition);
     } else if (activeTab === 'grns') {
-      setEditingItem(item);
+      const grnItem = item as GRN;
+      try {
+        // Fetch full GRN details including lines
+        if (!grnItem.receipt_id) {
+          setEditingItem(grnItem);
+        } else {
+          const fullGRN = await apiService.getGRN(grnItem.receipt_id);
+
+          // Transform lines to match GRNForm expectations
+          const transformedLines: GRNLine[] = Array.isArray(fullGRN.lines)
+            ? fullGRN.lines.map((line: RawGRNLine) => ({
+                line_id: line.line_id,
+                line_number: line.line_number,
+                item_code: line.item_code || '',
+                item_name: line.item_name || line.po_item_name || '',
+                description: line.description || '',
+                uom: line.uom || 'EA',
+                quantity_ordered:
+                  typeof line.quantity_ordered === 'number'
+                    ? line.quantity_ordered
+                    : parseFloat(line.quantity_ordered) || 0,
+                quantity_received:
+                  typeof line.quantity_received === 'number'
+                    ? line.quantity_received
+                    : parseFloat(line.quantity_received) || 0,
+                quantity_accepted:
+                  typeof line.quantity_accepted === 'number'
+                    ? line.quantity_accepted
+                    : parseFloat(line.quantity_accepted) || 0,
+                quantity_rejected:
+                  typeof line.quantity_rejected === 'number'
+                    ? line.quantity_rejected
+                    : parseFloat(line.quantity_rejected) || 0,
+                unit_price:
+                  typeof line.unit_price === 'number'
+                    ? line.unit_price
+                    : parseFloat(line.unit_price) || 0,
+                line_amount:
+                  typeof line.line_amount === 'number'
+                    ? line.line_amount
+                    : parseFloat(line.line_amount) || 0,
+                // Preserve tax fields for editing if present
+                tax_rate:
+                  typeof line.tax_rate === 'number'
+                    ? line.tax_rate
+                    : line.tax_rate !== undefined
+                    ? parseFloat(String(line.tax_rate)) || 0
+                    : undefined,
+                tax_amount:
+                  typeof line.tax_amount === 'number'
+                    ? line.tax_amount
+                    : line.tax_amount !== undefined
+                    ? parseFloat(String(line.tax_amount)) || 0
+                    : undefined,
+                lot_number: line.lot_number || '',
+                serial_number: line.serial_number || '',
+                expiration_date: formatDateForForm(line.expiration_date),
+                status: line.status || 'DRAFT',
+                rejection_reason: line.rejection_reason || '',
+                notes: line.notes || '',
+              }))
+            : [];
+
+          const transformedGRN: GRN = {
+            receipt_id: fullGRN.receipt_id || grnItem.receipt_id,
+            receipt_number: fullGRN.receipt_number || grnItem.receipt_number,
+            header_id: fullGRN.header_id || grnItem.header_id,
+            po_number: fullGRN.po_number || grnItem.po_number,
+            supplier_name: fullGRN.supplier_name || grnItem.supplier_name,
+            receipt_date: formatDateForForm(fullGRN.receipt_date || grnItem.receipt_date),
+            receipt_type: fullGRN.receipt_type || grnItem.receipt_type || 'STANDARD',
+            currency_code: fullGRN.currency_code || grnItem.currency_code || 'USD',
+            exchange_rate: fullGRN.exchange_rate || grnItem.exchange_rate || 1.0,
+            total_amount: fullGRN.total_amount || grnItem.total_amount || 0,
+            status: fullGRN.status || grnItem.status || 'DRAFT',
+            notes: fullGRN.notes || grnItem.notes || '',
+            lines: transformedLines,
+          };
+
+          setEditingItem(transformedGRN);
+        }
+      } catch (error) {
+        console.error('Error fetching full GRN data:', error);
+        // Fallback to basic header-only data if full fetch fails
+        setEditingItem(grnItem);
+      }
     } else {
       setEditingItem(item);
     }
@@ -778,14 +1119,24 @@ const ProcurementManager: React.FC = () => {
     setActiveTab(value as ProcurementType);
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status?: string) => {
+    if (!status) {
+      return <Badge className="bg-gray-100 text-gray-800 hover:bg-gray-100">Unknown</Badge>;
+    }
     switch (status.toLowerCase()) {
+      case 'draft':
+        return <Badge className="bg-gray-100 text-gray-800 hover:bg-gray-100">Draft</Badge>;
+      case 'pending':
+        return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Pending</Badge>;
       case 'approved':
       case 'completed':
         return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Approved</Badge>;
-      case 'pending':
-      case 'draft':
-        return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Pending</Badge>;
+      case 'released':
+        return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">Released</Badge>;
+      case 'received':
+        return <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Received</Badge>;
+      case 'closed':
+        return <Badge className="bg-gray-200 text-gray-900 hover:bg-gray-200">Closed</Badge>;
       case 'rejected':
       case 'cancelled':
         return <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Cancelled</Badge>;
@@ -890,18 +1241,19 @@ const ProcurementManager: React.FC = () => {
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Agreements</CardTitle>
-            <FileText className="w-4 h-4 text-gray-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{agreements.length}</div>
-            <p className="text-xs text-gray-500 mt-1">Active purchase agreements</p>
-          </CardContent>
-        </Card>
+        {/* Summary Cards */}
+       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
+         {/* Temporarily hidden Total Agreements card */}
+         {/* <Card>
+           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+             <CardTitle className="text-sm font-medium">Total Agreements</CardTitle>
+             <FileText className="w-4 h-4 text-gray-600" />
+           </CardHeader>
+           <CardContent>
+             <div className="text-2xl font-bold">{agreements.length}</div>
+             <p className="text-xs text-gray-500 mt-1">Active purchase agreements</p>
+           </CardContent>
+         </Card> */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
@@ -912,16 +1264,17 @@ const ProcurementManager: React.FC = () => {
             <p className="text-xs text-gray-500 mt-1">Purchase orders created</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Requisitions</CardTitle>
-            <Receipt className="w-4 h-4 text-gray-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{requisitions.length}</div>
-            <p className="text-xs text-gray-500 mt-1">Purchase requisitions</p>
-          </CardContent>
-        </Card>
+         {/* Temporarily hidden Total Requisitions card */}
+         {/* <Card>
+           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+             <CardTitle className="text-sm font-medium">Total Requisitions</CardTitle>
+             <Receipt className="w-4 h-4 text-gray-600" />
+           </CardHeader>
+           <CardContent>
+             <div className="text-2xl font-bold">{requisitions.length}</div>
+             <p className="text-xs text-gray-500 mt-1">Purchase requisitions</p>
+           </CardContent>
+         </Card> */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total GRNs</CardTitle>
@@ -944,20 +1297,21 @@ const ProcurementManager: React.FC = () => {
         </Card>
       </div>
 
-      <Tabs defaultValue="agreements" value={activeTab} onValueChange={handleTabChange} className="space-y-6">
+      {/*<Tabs defaultValue="agreements" value={activeTab} onValueChange={handleTabChange} className="space-y-6">*/}
+      <Tabs defaultValue="orders" value={activeTab} onValueChange={handleTabChange} className="space-y-6">
         <TabsList>
-          <TabsTrigger value="agreements" className="flex items-center gap-2">
+          {/*<TabsTrigger value="agreements" className="flex items-center gap-2">
             <FileText className="w-4 h-4" />
             Purchase Agreements
-          </TabsTrigger>
+          </TabsTrigger>*/}
           <TabsTrigger value="orders" className="flex items-center gap-2">
             <Package className="w-4 h-4" />
             Purchase Orders
           </TabsTrigger>
-          <TabsTrigger value="requisitions" className="flex items-center gap-2">
+          {/*<TabsTrigger value="requisitions" className="flex items-center gap-2">
             <Receipt className="w-4 h-4" />
             Purchase Requisitions
-          </TabsTrigger>
+          </TabsTrigger>*/}   
           <TabsTrigger value="grns" className="flex items-center gap-2">
             <Package className="w-4 h-4" />
             Goods Received Notes
@@ -1293,15 +1647,37 @@ const ProcurementManager: React.FC = () => {
                               >
                                 <Edit className="h-4 w-4" />
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDelete(order.header_id)}
-                                className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
-                                title="Delete"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                              {(order.approval_status || '').toUpperCase() === 'PENDING' && (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0 text-green-600 hover:text-green-700"
+                                      title="Approve/Reject Purchase Order"
+                                      disabled={approvingOrderId === order.header_id}
+                                    >
+                                      <CheckCircle className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem
+                                      onClick={() => handleApproveOrder(order, 'APPROVED')}
+                                      className="text-green-600 focus:text-green-700"
+                                    >
+                                      <CheckCircle className="h-4 w-4 mr-2" />
+                                      Approve
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() => handleApproveOrder(order, 'REJECTED')}
+                                      className="text-red-600 focus:text-red-700"
+                                    >
+                                      <XCircle className="h-4 w-4 mr-2" />
+                                      Reject
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1410,7 +1786,7 @@ const ProcurementManager: React.FC = () => {
                     <thead>
                       <tr className="border-b">
                         <th className="text-left py-3 px-4 font-semibold">GRN #</th>
-                        <th className="text-left py-3 px-4 font-semibold">PO Number</th>
+                        <th className="text-left py-3 px-4 font-semibold">PO #</th>
                         <th className="text-center py-3 px-4 font-semibold">Receipt Date</th>
                         <th className="text-center py-3 px-4 font-semibold">Receipt Type</th>
                         <th className="text-right py-3 px-4 font-semibold">Total Amount</th>
@@ -1422,7 +1798,9 @@ const ProcurementManager: React.FC = () => {
                       {filteredGRNs.map((grn) => (
                         <tr key={grn.receipt_id} className="border-b hover:bg-gray-50">
                           <td className="py-3 px-4 font-medium">{grn.receipt_number}</td>
-                          <td className="py-3 px-4">{grn.header_id}</td>
+                          <td className="py-3 px-4">
+                            {grn.po_number ? grn.po_number : grn.header_id ?? '-'}
+                          </td>
                           <td className="py-3 px-4 text-center">
                             {grn.receipt_date ? new Date(grn.receipt_date).toLocaleDateString() : '-'}
                           </td>
@@ -1639,8 +2017,8 @@ const ProcurementManager: React.FC = () => {
 
       {/* Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style={{ top: 0, margin: 0, padding: 0 }}>
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto" style={{ marginTop: 0 }}>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-900">
                 {editingItem ? 'Edit' : 'Create'} {activeTab === 'agreements' ? 'Purchase Agreement' : activeTab === 'orders' ? 'Purchase Order' : 'Purchase Requisition'}
@@ -1689,7 +2067,8 @@ const ProcurementManager: React.FC = () => {
               ) : (
                 <PurchaseOrderForm
                   key={`order-${(editingItem as PurchaseOrder)?.header_id || 'new'}`}
-                  purchaseOrder={editingItem as PurchaseOrder | null}
+                  // Use unknown first to avoid explicit any while bypassing structural type mismatch
+                  purchaseOrder={editingItem as unknown as PurchaseOrder | null}
                   suppliers={suppliers || []}
                   users={users || []}
                   requisitions={requisitions as unknown as Array<{requisition_id: number; requisition_number: string; description: string; status: string}>}
@@ -1710,13 +2089,17 @@ const ProcurementManager: React.FC = () => {
               <GRNForm
                 key={`grn-${(editingItem as GRN)?.receipt_id || 'new'}`}
                 grn={editingItem as GRN | null}
-                purchaseOrders={orders.map(order => ({
+                purchaseOrders={orders
+                  .filter(order => (order.approval_status || '').toUpperCase() === 'APPROVED')
+                  .map(order => ({
                   header_id: order.header_id || 0,
                   po_number: order.po_number || '',
                   supplier_name: order.supplier_name || '',
                   po_date: order.po_date || '',
                   total_amount: order.total_amount || 0,
-                  status: order.status || ''
+                  status: order.status || '',
+                  currency_code: order.currency_code ?? 'USD',
+                  exchange_rate: order.exchange_rate ?? 1.0
                 }))}
                 onSave={() => {
                   setShowForm(false);
@@ -1754,11 +2137,17 @@ const ProcurementManager: React.FC = () => {
 
       {/* View Modal */}
       {showViewForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style={{ top: 0, margin: 0, padding: 0 }}>
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto" style={{ marginTop: 0 }}>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-900">
-                View {activeTab === 'agreements' ? 'Purchase Agreement' : activeTab === 'orders' ? 'Purchase Order' : 'Purchase Requisition'} Details
+                {activeTab === 'agreements'
+                  ? 'View Purchase Agreement Details'
+                  : activeTab === 'orders'
+                  ? 'View Purchase Order Details'
+                  : activeTab === 'grns'
+                  ? 'View Goods Received Note Details'
+                  : 'View Purchase Requisition Details'}
               </h2>
               <button
                 onClick={() => {
@@ -1974,12 +2363,474 @@ const ProcurementManager: React.FC = () => {
               </div>
             ) : activeTab === 'orders' ? (
               <div className="space-y-6">
-                <p className="text-center text-gray-500">View functionality for Purchase Orders coming soon...</p>
-                <div className="flex justify-end">
+                {viewingItem && (
+                  <>
+                    {/* PO Header */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Purchase Order</CardTitle>
+                      </CardHeader>
+                      <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">PO Number</Label>
+                          <p className="text-sm mt-1">{(viewingItem as PurchaseOrder).po_number}</p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Supplier</Label>
+                          <p className="text-sm mt-1">{(viewingItem as PurchaseOrder).supplier_name || '-'}</p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">PO Date</Label>
+                          <p className="text-sm mt-1">
+                            {(viewingItem as PurchaseOrder).po_date
+                              ? new Date((viewingItem as PurchaseOrder).po_date as string).toLocaleDateString()
+                              : '-'}
+                          </p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Need By Date</Label>
+                          <p className="text-sm mt-1">
+                            {(viewingItem as PurchaseOrder).need_by_date
+                              ? new Date((viewingItem as PurchaseOrder).need_by_date as string).toLocaleDateString()
+                              : '-'}
+                          </p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Status</Label>
+                          <p className="text-sm mt-1">{(viewingItem as PurchaseOrder).status || '-'}</p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Approval Status</Label>
+                          <p className="text-sm mt-1">{(viewingItem as PurchaseOrder).approval_status || '-'}</p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Currency</Label>
+                          <p className="text-sm mt-1">{(viewingItem as PurchaseOrder).currency_code || 'USD'}</p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Exchange Rate</Label>
+                          <p className="text-sm mt-1">
+                            {(() => {
+                              const rate = (viewingItem as PurchaseOrder).exchange_rate;
+                              if (typeof rate === 'number') return rate.toFixed(6);
+                              if (typeof rate === 'string') return parseFloat(rate || '1').toFixed(6);
+                              return '1.000000';
+                            })()}
+                          </p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Total Amount</Label>
+                          <p className="text-sm mt-1 font-semibold">
+                            ${(() => {
+                              const order = viewingItem as PurchaseOrder;
+                              const lines = order.lines || [];
+                              if (lines.length > 0) {
+                                const subtotal = lines.reduce(
+                                  (sum, l) => sum + (Number(l.line_amount) || 0),
+                                  0
+                                );
+                                const taxAmount = lines.reduce(
+                                  (sum, l) => sum + (Number(l.tax_amount) || 0),
+                                  0
+                                );
+                                return (subtotal + taxAmount).toFixed(2);
+                              }
+                              const amount = order.total_amount;
+                              if (typeof amount === 'number') return amount.toFixed(2);
+                              if (typeof amount === 'string') return parseFloat(amount || '0').toFixed(2);
+                              return '0.00';
+                            })()}
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* PO Lines */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Line Items</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {(viewingItem as PurchaseOrder).lines && (viewingItem as PurchaseOrder).lines!.length > 0 ? (() => {
+                          const lines = (viewingItem as PurchaseOrder).lines || [];
+                          return (
+                            <div className="overflow-x-auto">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead className="w-16 text-xs">Line</TableHead>
+                                    <TableHead className="w-48 text-xs">Item</TableHead>
+                                    <TableHead className="w-32 text-xs">Description</TableHead>
+                                    <TableHead className="w-20 text-xs">Boxes</TableHead>
+                                    <TableHead className="w-24 text-xs">Packets</TableHead>
+                                    <TableHead className="w-24 text-xs">Qty</TableHead>
+                                    <TableHead className="w-20 text-xs">UOM</TableHead>
+                                    <TableHead className="w-32 text-xs">Unit Price</TableHead>
+                                    <TableHead className="w-24 text-xs">Tax %</TableHead>
+                                    <TableHead className="w-24 text-xs">Tax Amount</TableHead>
+                                    <TableHead className="w-32 text-xs">Line Amount</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {lines.map((line: POLine, index) => (
+                                    <TableRow key={index}>
+                                      <TableCell className="text-xs">{line.line_number}</TableCell>
+                                      <TableCell>
+                                        <div className="space-y-1">
+                                          <p className="text-xs font-medium">{line.item_code}</p>
+                                          <p className="text-xs">{line.item_name}</p>
+                                        </div>
+                                      </TableCell>
+                                      <TableCell className="text-xs">
+                                        {line.description}
+                                      </TableCell>
+                                      <TableCell className="text-xs">{line.box_quantity}</TableCell>
+                                      <TableCell className="text-xs">{line.packet_quantity}</TableCell>
+                                      <TableCell className="text-xs">{line.quantity}</TableCell>
+                                      <TableCell className="text-xs">{line.uom}</TableCell>
+                                      <TableCell className="text-xs">
+                                        ${(() => {
+                                          const price = line.unit_price;
+                                          if (typeof price === 'number') return price.toFixed(2);
+                                          if (typeof price === 'string') return parseFloat(price || '0').toFixed(2);
+                                          return '0.00';
+                                        })()}
+                                      </TableCell>
+                                      <TableCell className="text-xs">
+                                        {Number(line.tax_rate || 0).toFixed(2)}%
+                                      </TableCell>
+                                      <TableCell className="text-xs">
+                                        ${Number(line.tax_amount || 0).toFixed(2)}
+                                      </TableCell>
+                                      <TableCell className="text-xs font-semibold">
+                                        ${(() => {
+                                          const base = Number(line.line_amount) || 0;
+                                          const tax = Number(line.tax_amount) || 0;
+                                          return (base + tax).toFixed(2);
+                                        })()}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          );
+                        })() : (
+                          <p className="text-sm text-gray-500">No line items found</p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* Pricing Summary */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Pricing Summary</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="space-y-1">
+                            <p className="text-xs text-gray-600">Total Items</p>
+                            <p className="text-lg font-semibold">
+                              {(viewingItem as PurchaseOrder).lines?.length || 0}
+                            </p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs text-gray-600">Subtotal</p>
+                            <p className="text-lg font-semibold">
+                              ${(() => {
+                                const lines = (viewingItem as PurchaseOrder).lines || [];
+                                const subtotal = lines.reduce(
+                                  (sum, l) => sum + (Number(l.line_amount) || 0),
+                                  0
+                                );
+                                return subtotal.toFixed(2);
+                              })()}
+                            </p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs text-gray-600">Tax Amount</p>
+                            <p className="text-lg font-semibold">
+                              ${(() => {
+                                const lines = (viewingItem as PurchaseOrder).lines || [];
+                                const taxAmount = lines.reduce(
+                                  (sum, l) => sum + (Number(l.tax_amount) || 0),
+                                  0
+                                );
+                                return taxAmount.toFixed(2);
+                              })()}
+                            </p>
+                          </div>
+                          <div className="space-y-1 md:col-span-3">
+                            <p className="text-xs text-gray-600">Total Amount</p>
+                            <p className="text-lg font-semibold">
+                              ${(() => {
+                                const lines = (viewingItem as PurchaseOrder).lines || [];
+                                const subtotal = lines.reduce(
+                                  (sum, l) => sum + (Number(l.line_amount) || 0),
+                                  0
+                                );
+                                const taxAmount = lines.reduce(
+                                  (sum, l) => sum + (Number(l.tax_amount) || 0),
+                                  0
+                                );
+                                return (subtotal + taxAmount).toFixed(2);
+                              })()}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Close Button */}
+                    <div className="flex justify-end pt-4 border-t">
                   <Button onClick={() => setShowViewForm(false)} variant="outline">
                     Close
                   </Button>
                 </div>
+                  </>
+                )}
+              </div>
+            ) : activeTab === 'grns' ? (
+              <div className="space-y-6">
+                {viewingItem && (
+                  <>
+                    {/* GRN Header */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Goods Received Note</CardTitle>
+                      </CardHeader>
+                      <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">GRN Number</Label>
+                          <p className="text-sm mt-1">{(viewingItem as GRN).receipt_number}</p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Purchase Order</Label>
+                          <p className="text-sm mt-1">
+                            {(() => {
+                              const grn = viewingItem as GRN;
+                              if (grn.po_number && grn.supplier_name) {
+                                return `${grn.po_number} - ${grn.supplier_name}`;
+                              }
+                              if (grn.po_number) return grn.po_number;
+                              return grn.header_id ?? '-';
+                            })()}
+                          </p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Receipt Date</Label>
+                          <p className="text-sm mt-1">
+                            {(viewingItem as GRN).receipt_date
+                              ? new Date((viewingItem as GRN).receipt_date as string).toLocaleDateString()
+                              : '-'}
+                          </p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Receipt Type</Label>
+                          <p className="text-sm mt-1">{(viewingItem as GRN).receipt_type}</p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Status</Label>
+                          <p className="text-sm mt-1">{(viewingItem as GRN).status}</p>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Total Amount</Label>
+                          <p className="text-sm mt-1 font-semibold">
+                            ${(() => {
+                              const grn = viewingItem as GRN;
+                              const lines = grn.lines || [];
+
+                              // Prefer recomputing from lines (base + tax) when available
+                              if (lines.length > 0) {
+                                const total = lines.reduce((sum, l: GRNLine) => {
+                                  const base = Number(l.line_amount) || 0;
+                                  const tax = Number(l.tax_amount) || 0;
+                                  return sum + base + tax;
+                                }, 0);
+                                return total.toFixed(2);
+                              }
+
+                              // Fallback to header total_amount from backend
+                              const amount = grn.total_amount;
+                              if (typeof amount === 'number') return amount.toFixed(2);
+                              if (typeof amount === 'string') return parseFloat(amount || '0').toFixed(2);
+                              return '0.00';
+                            })()}
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* GRN Lines */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Received Items</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {(viewingItem as GRN).lines && (viewingItem as GRN).lines!.length > 0 ? (() => {
+                          const lines = (viewingItem as GRN).lines || [];
+                          const hasRejectionNotes = lines.some(line => Number(line.quantity_rejected) > 0 && (line.rejection_reason || '').trim() !== '');
+
+                          return (
+                          <>
+                            <div className="overflow-x-auto">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead className="w-16 text-xs">Line</TableHead>
+                                    <TableHead className="w-48 text-xs">Item</TableHead>
+                                    <TableHead className="w-32 text-xs">UOM</TableHead>
+                                    <TableHead className="w-24 text-xs">Ordered</TableHead>
+                                    <TableHead className="w-24 text-xs">Received</TableHead>
+                                    <TableHead className="w-24 text-xs">Accepted</TableHead>
+                                    <TableHead className="w-24 text-xs">Rejected</TableHead>
+                                    <TableHead className="w-32 text-xs">Unit Price</TableHead>
+                                    <TableHead className="w-24 text-xs">Tax %</TableHead>
+                                    <TableHead className="w-24 text-xs">Tax Amount</TableHead>
+                                    <TableHead className="w-32 text-xs">Line Amount</TableHead>
+                                    <TableHead className="w-32 text-xs">Lot Number</TableHead>
+                                    <TableHead className="w-32 text-xs">Expiration</TableHead>
+                                    {hasRejectionNotes && <TableHead className="w-40 text-xs">Rejection Notes</TableHead>}
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {lines.map((line, index) => (
+                                    <TableRow key={index}>
+                                      <TableCell className="text-xs">{line.line_number}</TableCell>
+                                      <TableCell>
+                                        <div className="space-y-1">
+                                          <p className="text-xs font-medium">{line.item_code}</p>
+                                          <p className="text-xs">{line.item_name}</p>
+                                        </div>
+                                      </TableCell>
+                                      <TableCell className="text-xs">{line.uom}</TableCell>
+                                      <TableCell className="text-xs">{line.quantity_ordered}</TableCell>
+                                      <TableCell className="text-xs">{line.quantity_received}</TableCell>
+                                      <TableCell className="text-xs">{line.quantity_accepted}</TableCell>
+                                      <TableCell className="text-xs">{line.quantity_rejected}</TableCell>
+                                      <TableCell className="text-xs">
+                                        ${(() => {
+                                          const price = line.unit_price;
+                                          if (typeof price === 'number') return price.toFixed(2);
+                                          if (typeof price === 'string') return parseFloat(price || '0').toFixed(2);
+                                          return '0.00';
+                                        })()}
+                                      </TableCell>
+                                      <TableCell className="text-xs">
+                                        {(() => {
+                                          const rate = (line as GRNLine).tax_rate;
+                                          if (typeof rate === 'number') return `${rate.toFixed(2)}%`;
+                                          if (typeof rate === 'string') return `${(parseFloat(rate || '0') || 0).toFixed(2)}%`;
+                                          return '0.00%';
+                                        })()}
+                                      </TableCell>
+                                      <TableCell className="text-xs">
+                                        ${(() => {
+                                          const taxValue = (line as GRNLine).tax_amount;
+                                          if (typeof taxValue === 'number') return taxValue.toFixed(2);
+                                          if (typeof taxValue === 'string') return parseFloat(taxValue || '0').toFixed(2);
+                                          return '0.00';
+                                        })()}
+                                      </TableCell>
+                                      <TableCell className="text-xs font-semibold">
+                                        ${(() => {
+                                          const base = (() => {
+                                            const amount = (line as GRNLine).line_amount;
+                                            if (typeof amount === 'number') return amount;
+                                            if (typeof amount === 'string') return parseFloat(amount || '0') || 0;
+                                            return 0;
+                                          })();
+                                          const tax = (() => {
+                                            const t = (line as GRNLine).tax_amount;
+                                            if (typeof t === 'number') return t;
+                                            if (typeof t === 'string') return parseFloat(t || '0') || 0;
+                                            return 0;
+                                          })();
+                                          return (base + tax).toFixed(2);
+                                        })()}
+                                      </TableCell>
+                                      <TableCell className="text-xs">{line.lot_number || '-'}</TableCell>
+                                      <TableCell className="text-xs">
+                                        {line.expiration_date
+                                          ? new Date(line.expiration_date).toLocaleDateString()
+                                          : '-'}
+                                      </TableCell>
+                                      {hasRejectionNotes && (
+                                        <TableCell className="text-xs">
+                                          {(line.rejection_reason || '').trim() !== '' ? line.rejection_reason : '-'}
+                                        </TableCell>
+                                      )}
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                            
+                          </>
+                          );
+                        })() : (
+                          <p className="text-sm text-gray-500">No line items found</p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Pricing Summary</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="space-y-1">
+                            <p className="text-xs text-gray-600">Total Items</p>
+                            <p className="text-lg font-semibold">{(viewingItem as GRN).lines?.length || 0}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs text-gray-600">Total Accepted</p>
+                            <p className="text-lg font-semibold">
+                              {(() => {
+                                const lines = (viewingItem as GRN).lines || [];
+                                return lines.reduce((sum, l) => sum + (Number(l.quantity_accepted) || 0), 0);
+                              })()}
+                            </p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-xs text-gray-600">Total Amount</p>
+                            <p className="text-lg font-semibold">
+                              ${(() => {
+                                const lines = (viewingItem as GRN).lines || [];
+                                const total = lines.reduce((sum, l: GRNLine) => {
+                                  const base = Number(l.line_amount) || 0;
+                                  const tax = Number(l.tax_amount) || 0;
+                                  return sum + base + tax;
+                                }, 0);
+                                return total.toFixed(2);
+                              })()}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Notes */}
+                    {(viewingItem as GRN).notes && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-lg">Notes</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-sm">{(viewingItem as GRN).notes}</p>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Close Button */}
+                    <div className="flex justify-end pt-4 border-t">
+                      <Button onClick={() => setShowViewForm(false)} variant="outline">
+                        Close
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <div className="space-y-6">

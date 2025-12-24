@@ -47,25 +47,51 @@ interface PaymentApplication {
   application_amount: number;
 }
 
-interface APPaymentFormProps {
-  onClose: () => void;
-  onSuccess: () => void;
-  selectedInvoice?: APInvoice | null;
+interface APPayment {
+  payment_id: number;
+  payment_number: string;
+  supplier_id: number;
+  supplier_name: string;
+  payment_date: string;
+  currency_code: string;
+  exchange_rate: number;
+  payment_amount: number;
+  amount_applied: number;
+  unapplied_amount: number;
+  payment_method?: string;
+  bank_account?: string;
+  reference_number?: string;
+  status: 'DRAFT' | 'PAID';
+  notes?: string;
 }
 
-export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPaymentFormProps) => {
+interface APPaymentFormProps {
+  onClose: () => void;
+  onSuccess: (options?: { mode?: 'draft' | 'final' }) => void;
+  selectedInvoice?: APInvoice | null;
+  paymentToEdit?: APPayment | null;
+}
+
+export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice, paymentToEdit }: APPaymentFormProps) => {
+  // Helper to normalize dates coming from the backend (which may include time component)
+  const normalizeDateForInput = (dateStr?: string) => {
+    if (!dateStr) return new Date().toISOString().split('T')[0];
+    // Accept both pure DATE ('2025-01-01') and DATETIME/ISO ('2025-01-01T00:00:00.000Z')
+    return dateStr.split('T')[0];
+  };
+
   const [formData, setFormData] = useState({
-    supplier_id: selectedInvoice?.supplier_id.toString() || "",
-    payment_number: "",
-    payment_date: new Date().toISOString().split('T')[0],
-    currency_code: "USD",
-    exchange_rate: 1.0,
-    payment_amount: 0,
-    payment_method: "",
-    bank_account: "",
-    reference_number: "",
-    status: "DRAFT" as const,
-    notes: ""
+    supplier_id: paymentToEdit?.supplier_id.toString() || selectedInvoice?.supplier_id.toString() || "",
+    payment_number: paymentToEdit?.payment_number || "",
+    payment_date: paymentToEdit ? normalizeDateForInput(paymentToEdit.payment_date) : new Date().toISOString().split('T')[0],
+    currency_code: paymentToEdit?.currency_code || "USD",
+    exchange_rate: paymentToEdit?.exchange_rate || 1.0,
+    payment_amount: paymentToEdit?.payment_amount || 0,
+    payment_method: paymentToEdit?.payment_method || "",
+    bank_account: paymentToEdit?.bank_account || "",
+    reference_number: paymentToEdit?.reference_number || "",
+    status: (paymentToEdit?.status || "DRAFT") as 'DRAFT' | 'PAID',
+    notes: paymentToEdit?.notes || ""
   });
 
   const [suppliers, setSuppliers] = useState<APSupplier[]>([]);
@@ -84,25 +110,33 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
       
       // Filter for invoices that can be paid:
       // - Must have amount_due > 0 (this is the primary criteria)
-      // - Status should be PENDING, DRAFT, OPEN, or PAID (if partially paid)
+      // - Status should be PENDING, DRAFT, OPEN, or APPROVED (not PAID, CANCELLED, or VOID)
+      // - Approval status MUST be APPROVED (only approved invoices can be paid)
       // - Should not be CANCELLED or VOID
+      // - REJECTED invoices should not appear
       const payableInvoices = invoicesData.filter(inv => {
         const hasAmountDue = Number(inv.amount_due) > 0;
-        const isPayableStatus = inv.status === 'PENDING' || inv.status === 'DRAFT' || inv.status === 'OPEN' || inv.status === 'PAID';
+        const isPayableStatus = inv.status === 'PENDING' || inv.status === 'DRAFT' || inv.status === 'OPEN' || inv.status === 'APPROVED';
         const isNotCancelled = inv.status !== 'CANCELLED' && inv.status !== 'VOID';
+        const isNotPaid = inv.status !== 'PAID';
+        const isApproved = inv.approval_status === 'APPROVED';
         
-        // Show invoice if it has amount due and is in a payable status (including PAID if partially paid)
-        const shouldShow = hasAmountDue && isPayableStatus && isNotCancelled;
+        // Show invoice only if it's APPROVED, has amount due, and is in a payable status
+        // PENDING and REJECTED invoices should not appear in payment form
+        const shouldShow = hasAmountDue && isPayableStatus && isNotCancelled && isNotPaid && isApproved;
         
         console.log('Invoice filter check:', {
           invoice_number: inv.invoice_number,
           status: inv.status,
+          approval_status: inv.approval_status,
           amount_due: inv.amount_due,
           total_amount: inv.total_amount,
           amount_paid: inv.amount_paid,
           hasAmountDue,
           isPayableStatus,
           isNotCancelled,
+          isNotPaid,
+          isApproved,
           shouldShow
         });
         
@@ -148,8 +182,29 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
       const suppliersData = await apiService.getAPSuppliers();
       setSuppliers(suppliersData);
 
-      // If we have a selected invoice, load its data
-      if (selectedInvoice) {
+      // If editing a payment, load its data from actual payment tables
+      if (paymentToEdit) {
+        await loadSupplierInvoices(paymentToEdit.supplier_id);
+
+        try {
+          const paymentApplications = await apiService.getAPPaymentApplications(paymentToEdit.payment_id);
+          const apps: PaymentApplication[] = paymentApplications.map((app: {
+            invoice_id: number;
+            invoice_number?: string;
+            amount_due?: number;
+            applied_amount: number;
+          }) => ({
+            invoice_id: app.invoice_id,
+            invoice_number: app.invoice_number || '',
+            amount_due: app.amount_due || 0,
+            application_amount: app.applied_amount || 0
+          }));
+          setApplications(apps);
+        } catch (error) {
+          console.error('Error loading payment applications:', error);
+        }
+      } else if (selectedInvoice) {
+        // If we have a selected invoice, load its data
         setFormData(prev => ({
           ...prev,
           supplier_id: selectedInvoice.supplier_id.toString(),
@@ -159,6 +214,26 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
         // Load invoices for this supplier
         await loadSupplierInvoices(selectedInvoice.supplier_id);
         
+        // Check if the selected invoice is already in a draft payment
+        try {
+          const conflicts = await apiService.checkDraftPaymentConflicts(
+            [selectedInvoice.invoice_id],
+            null
+          );
+          
+          if (conflicts && conflicts.length > 0) {
+            const conflict = conflicts[0];
+            toast.error(
+              `Invoice ${conflict.invoice_number} is already in draft payment ${conflict.payment_number}`
+            );
+            // Don't pre-select the invoice if it's in a draft payment
+            return;
+          }
+        } catch (error) {
+          console.error('Error checking draft payment conflicts:', error);
+          // Continue with pre-selection if the check fails
+        }
+        
         // Pre-select the invoice for payment
         setApplications([{
           invoice_id: selectedInvoice.invoice_id,
@@ -166,6 +241,8 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
           amount_due: selectedInvoice.amount_due,
           application_amount: selectedInvoice.amount_due
         }]);
+      } else {
+        // Create mode - form will be empty as initialized
       }
     } catch (error) {
       console.error('Error loading initial data:', error);
@@ -173,16 +250,16 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
     } finally {
       setLoadingData(false);
     }
-  }, [selectedInvoice]);
+  }, [selectedInvoice, paymentToEdit]);
 
   // Load initial data on mount
   useEffect(() => {
     loadInitialData();
   }, [loadInitialData]);
 
-  // Auto-generate payment number when form loads (only if not already set)
+  // Auto-generate payment number when form loads (only if not already set and not editing)
   useEffect(() => {
-    if (!paymentNumberGenerated.current) {
+    if (!paymentNumberGenerated.current && !paymentToEdit) {
       paymentNumberGenerated.current = true;
       generateNextPaymentNumber().then((nextNumber) => {
         setFormData(prev => {
@@ -197,22 +274,24 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
         paymentNumberGenerated.current = false; // Reset on error so it can retry
       });
     }
-  }, []);
+  }, [paymentToEdit]);
 
-  // Auto-update payment amount when invoices are selected or removed
+  // Auto-update payment amount when invoices are selected or removed (only when creating, not editing)
   useEffect(() => {
-    if (applications.length > 0) {
-      // Calculate sum of all selected invoice amounts (use amount_due from invoices, not applications)
-      const totalInvoiceAmount = applications.reduce((sum, app) => {
-        const invoice = invoices.find(inv => inv.invoice_id === app.invoice_id);
-        return sum + (Number(invoice?.amount_due) || Number(app.amount_due) || 0);
-      }, 0);
-      setFormData(prev => ({ ...prev, payment_amount: totalInvoiceAmount }));
-    } else {
-      // Reset to 0 if no invoices selected
-      setFormData(prev => ({ ...prev, payment_amount: 0 }));
+    if (!paymentToEdit) {
+      if (applications.length > 0) {
+        // Calculate sum of all selected invoice amounts (use amount_due from invoices, not applications)
+        const totalInvoiceAmount = applications.reduce((sum, app) => {
+          const invoice = invoices.find(inv => inv.invoice_id === app.invoice_id);
+          return sum + (Number(invoice?.amount_due) || Number(app.amount_due) || 0);
+        }, 0);
+        setFormData(prev => ({ ...prev, payment_amount: totalInvoiceAmount }));
+      } else {
+        // Reset to 0 if no invoices selected
+        setFormData(prev => ({ ...prev, payment_amount: 0 }));
+      }
     }
-  }, [applications.length, invoices]); // Trigger when applications or invoices change
+  }, [applications, invoices, paymentToEdit]); // Trigger when applications or invoices change
 
   const handleSupplierChange = async (supplierId: string) => {
     setFormData(prev => ({ ...prev, supplier_id: supplierId }));
@@ -225,11 +304,30 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
     }
   };
 
-  const addInvoiceApplication = (invoice: APInvoice) => {
+  const addInvoiceApplication = async (invoice: APInvoice) => {
     const existingApp = applications.find(app => app.invoice_id === invoice.invoice_id);
     if (existingApp) {
       toast.error('This invoice is already selected for payment');
       return;
+    }
+
+    // Check if this invoice is already in a draft payment
+    try {
+      const conflicts = await apiService.checkDraftPaymentConflicts(
+        [invoice.invoice_id],
+        paymentToEdit?.payment_id || null
+      );
+      
+      if (conflicts && conflicts.length > 0) {
+        const conflict = conflicts[0];
+        toast.error(
+          `Invoice ${conflict.invoice_number} is already in draft payment ${conflict.payment_number}`
+        );
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking draft payment conflicts:', error);
+      // Continue with adding the invoice if the check fails (don't block user)
     }
 
     const newApplication = {
@@ -274,6 +372,69 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
     ));
   };
 
+  // Helper to determine if form is "complete" enough to save as a draft
+  const canSaveDraft = () => {
+    if (!formData.supplier_id) return false;
+    if (!formData.payment_number) return false;
+    if (!formData.payment_date) return false;
+    if (!formData.payment_amount || Number(formData.payment_amount) <= 0) return false;
+    if (applications.length === 0) return false;
+    if (applications.some(app => app.application_amount <= 0)) return false;
+
+    const invalidApplications = applications.filter(app => {
+      const invoice = invoices.find(inv => inv.invoice_id === app.invoice_id);
+      return invoice && Number(app.application_amount) > Number(invoice.amount_due);
+    });
+
+    if (invalidApplications.length > 0) return false;
+
+    return true;
+  };
+
+  // Close button (X / Back): if form is fully filled for a new payment, save as DRAFT first
+  const handleClose = async () => {
+    // Only auto-save drafts for new payments, not when editing existing ones
+    if (!paymentToEdit && canSaveDraft()) {
+      setLoading(true);
+      try {
+        const validApplications = applications.map(app => {
+          if (!app.invoice_id || app.application_amount === undefined || app.application_amount === null) {
+            throw new Error(`Invalid application data: invoice_id=${app.invoice_id}, application_amount=${app.application_amount}`);
+          }
+          return {
+            invoice_id: Number(app.invoice_id),
+            application_amount: Number(app.application_amount),
+            application_date: formData.payment_date || new Date().toISOString().split('T')[0]
+          };
+        });
+
+        const paymentData = {
+          ...formData,
+          status: 'DRAFT' as const,
+          supplier_id: parseInt(formData.supplier_id),
+          total_amount: formData.payment_amount,
+          payment_amount: formData.payment_amount,
+          applications: validApplications
+        };
+
+        await apiService.createAPPayment(paymentData);
+        onSuccess({ mode: 'draft' });
+      } catch (error) {
+        console.error('Error saving draft payment:', error);
+        toast.error('Failed to save draft payment');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    onClose();
+  };
+
+  // Cancel button - discard data without saving
+  const handleCancel = () => {
+    onClose();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -303,36 +464,85 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
       return;
     }
 
+    // Check if any selected invoices are already in draft payments
+    try {
+      const invoiceIds = applications.map(app => app.invoice_id);
+      const conflicts = await apiService.checkDraftPaymentConflicts(
+        invoiceIds,
+        paymentToEdit?.payment_id || null
+      );
+      
+      if (conflicts && conflicts.length > 0) {
+        const conflictMessages = conflicts.map(conflict => 
+          `Invoice ${conflict.invoice_number} is already in draft payment ${conflict.payment_number}`
+        );
+        toast.error(conflictMessages.join(', '));
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking draft payment conflicts:', error);
+      // Continue with submission if the check fails (don't block user)
+    }
+
     setLoading(true);
     try {
-      // Ensure all application data is valid before sending
-      const validApplications = applications.map(app => {
-        if (!app.invoice_id || app.application_amount === undefined || app.application_amount === null) {
-          throw new Error(`Invalid application data: invoice_id=${app.invoice_id}, application_amount=${app.application_amount}`);
-        }
-        return {
-          invoice_id: Number(app.invoice_id),
-          application_amount: Number(app.application_amount),
-          application_date: formData.payment_date || new Date().toISOString().split('T')[0]
+      if (paymentToEdit) {
+        // Update existing payment
+        const validApplications = applications.map(app => {
+          if (!app.invoice_id || app.application_amount === undefined || app.application_amount === null) {
+            throw new Error(`Invalid application data: invoice_id=${app.invoice_id}, application_amount=${app.application_amount}`);
+          }
+          return {
+            invoice_id: Number(app.invoice_id),
+            application_amount: Number(app.application_amount),
+            application_date: formData.payment_date || new Date().toISOString().split('T')[0]
+          };
+        });
+
+        const paymentData = {
+          ...formData,
+          status: (paymentToEdit.status === 'DRAFT' ? 'PAID' : paymentToEdit.status) as 'DRAFT' | 'PAID',
+          supplier_id: parseInt(formData.supplier_id),
+          total_amount: formData.payment_amount,
+          payment_amount: formData.payment_amount,
+          applications: validApplications
         };
-      });
 
-      const paymentData = {
-        ...formData,
-        supplier_id: parseInt(formData.supplier_id),
-        total_amount: formData.payment_amount, // Backend expects total_amount
-        payment_amount: formData.payment_amount, // Also send payment_amount
-        applications: validApplications
-      };
+        await apiService.updateAPPayment(paymentToEdit.payment_id, paymentData);
+        // Don't show toast here - let the parent component handle it
+      } else {
+        // Create new payment (will set status to PAID)
+        const validApplications = applications.map(app => {
+          if (!app.invoice_id || app.application_amount === undefined || app.application_amount === null) {
+            throw new Error(`Invalid application data: invoice_id=${app.invoice_id}, application_amount=${app.application_amount}`);
+          }
+          return {
+            invoice_id: Number(app.invoice_id),
+            application_amount: Number(app.application_amount),
+            application_date: formData.payment_date || new Date().toISOString().split('T')[0]
+          };
+        });
 
-      await apiService.createAPPayment(paymentData);
+        const paymentData = {
+          ...formData,
+          status: 'PAID' as const,
+          supplier_id: parseInt(formData.supplier_id),
+          total_amount: formData.payment_amount,
+          payment_amount: formData.payment_amount,
+          applications: validApplications
+          // Status will be set to PAID by backend
+        };
+
+        await apiService.createAPPayment(paymentData);
+        // Don't show toast here - let the parent component handle it
+      }
       
       // Reload invoices to get updated amounts after payment
       if (formData.supplier_id) {
         await loadSupplierInvoices(parseInt(formData.supplier_id));
       }
       
-      onSuccess();
+      onSuccess({ mode: 'final' });
     } catch (error) {
       console.error('Error creating payment:', error);
       toast.error('Failed to create payment');
@@ -364,12 +574,12 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
         <div className="p-6 border-b">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={onClose}>
+              <Button variant="ghost" size="sm" onClick={handleClose}>
                 <ArrowLeft className="w-4 h-4" />
               </Button>
-              <h2 className="text-xl font-semibold">Create AP Payment</h2>
+              <h2 className="text-xl font-semibold">{paymentToEdit ? 'Edit AP Payment' : 'Create AP Payment'}</h2>
             </div>
-            <Button variant="ghost" size="sm" onClick={onClose}>
+            <Button variant="ghost" size="sm" onClick={handleClose}>
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -549,7 +759,7 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
                 {invoices.length === 0 ? (
                   <div className="text-center py-4 text-gray-500">
                     No payable invoices found for this supplier
-                    <p className="text-xs mt-2">(Invoices must be PENDING or DRAFT status with amount due &gt; 0)</p>
+                    <p className="text-xs mt-2">(Only APPROVED invoices with amount due &gt; 0 are available for payment)</p>
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -673,11 +883,17 @@ export const APPaymentForm = ({ onClose, onSuccess, selectedInvoice }: APPayment
 
           {/* Actions */}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={handleCancel}>
               Cancel
             </Button>
             <Button type="submit" disabled={loading || applications.length === 0}>
-              {loading ? "Creating..." : "Create Payment"}
+              {loading
+                ? paymentToEdit
+                  ? (paymentToEdit.status === 'DRAFT' ? "Creating..." : "Updating...")
+                  : "Creating..."
+                : paymentToEdit
+                  ? (paymentToEdit.status === 'DRAFT' ? "Create Payment" : "Update Payment")
+                  : "Create Payment"}
             </Button>
           </div>
         </form>

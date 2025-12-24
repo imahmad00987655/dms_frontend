@@ -32,6 +32,9 @@ interface POLine {
   uom: string;
   unit_price: number;
   line_amount: number;
+  // Optional tax fields coming from the Purchase Order line
+  tax_rate?: number;
+  tax_amount?: number;
   quantity_received: number;
   quantity_remaining: number;
 }
@@ -49,12 +52,15 @@ interface GRNLine {
   quantity_rejected: number;
   unit_price: number;
   line_amount: number;
+  // Tax fields carried over from PO and re-calculated based on accepted quantity
+  tax_rate?: number;
+  tax_amount?: number;
   lot_number: string;
   serial_number: string;
   expiration_date: string;
-  status: string;
   rejection_reason: string;
   notes: string;
+  status?: string;
 }
 
 interface GRN {
@@ -84,6 +90,12 @@ export const GRNForm: React.FC<GRNFormProps> = ({
   onSave,
   onCancel
 }) => {
+  // Normalize date strings coming from the backend for use in <input type="date">
+  const normalizeDateForInput = (dateStr?: string) => {
+    if (!dateStr) return '';
+    if (!dateStr.includes('T')) return dateStr;
+    return dateStr.split('T')[0];
+  };
   // Helper function to safely convert values to numbers
   const safeNumber = (value: string | number | undefined | null): number => {
     if (typeof value === 'number') return value;
@@ -106,12 +118,14 @@ export const GRNForm: React.FC<GRNFormProps> = ({
   const [poLines, setPOLines] = useState<POLine[]>([]);
   const [grnLines, setGRNLines] = useState<GRNLine[]>([]);
   const [loading, setLoading] = useState(false);
+  const [alreadyAcceptedByLine, setAlreadyAcceptedByLine] = useState<{ [lineId: number]: number }>({});
+  const [hasPreviousGRNs, setHasPreviousGRNs] = useState(false);
 
   useEffect(() => {
     if (grn) {
       setFormData({
         header_id: grn.header_id?.toString() || '',
-        receipt_date: grn.receipt_date || '',
+        receipt_date: normalizeDateForInput(grn.receipt_date) || '',
         receipt_type: grn.receipt_type || 'STANDARD',
         currency_code: grn.currency_code || 'USD',
         exchange_rate: grn.exchange_rate?.toString() || '1.0',
@@ -120,7 +134,12 @@ export const GRNForm: React.FC<GRNFormProps> = ({
         notes: grn.notes || ''
       });
       if (grn.lines) {
-        setGRNLines(grn.lines);
+        setGRNLines(
+          grn.lines.map(line => ({
+            ...line,
+            expiration_date: normalizeDateForInput(line.expiration_date),
+          }))
+        );
       }
     } else {
       setFormData({
@@ -162,11 +181,94 @@ export const GRNForm: React.FC<GRNFormProps> = ({
       }));
       
       try {
-        const lines = await apiService.getPurchaseOrderLines(parseInt(poId));
+        // Fetch full purchase order so we have access to tax fields on lines
+        const fullOrder = await apiService.getPurchaseOrder(parseInt(poId));
+        const orderLines = Array.isArray((fullOrder as { lines?: unknown }).lines)
+          ? (fullOrder as { lines: POLine[] }).lines
+          : [];
+        const lines: POLine[] = orderLines;
+        console.log('PO Lines fetched for GRN:', lines);
+        
+        // Ensure lines is an array
+        if (!Array.isArray(lines)) {
+          console.error('Invalid response format - lines is not an array:', lines);
+          toast({
+            title: "Error",
+            description: "Invalid response format from server",
+            variant: "destructive"
+          });
+          setPOLines([]);
+          setGRNLines([]);
+          return;
+        }
+        
         setPOLines(lines);
         
+        if (lines.length === 0) {
+          toast({
+            title: "No Lines Available",
+            description: "This purchase order has no lines available for receiving (all items may have been fully received).",
+            variant: "default"
+          });
+          setGRNLines([]);
+          return;
+        }
+        
+        // Fetch previous GRNs for this PO to calculate already accepted quantities
+        const alreadyAcceptedMap: { [lineId: number]: number } = {};
+        let hasPrevious = false;
+        try {
+          const previousGRNs = await apiService.getGRNs({ header_id: poId });
+          console.log('Previous GRNs fetched:', previousGRNs);
+          
+          if (Array.isArray(previousGRNs) && previousGRNs.length > 0) {
+            // Filter out current GRN if editing
+            const otherGRNs = previousGRNs.filter(grnItem => !grn?.receipt_id || grnItem.receipt_id !== grn.receipt_id);
+            
+            if (otherGRNs.length > 0) {
+              hasPrevious = true;
+              
+              // Fetch all GRN lines in parallel for efficiency
+              const grnLinePromises = otherGRNs.map(grnItem => 
+                apiService.getGRN(grnItem.receipt_id).catch(err => {
+                  console.error(`Error fetching GRN ${grnItem.receipt_id}:`, err);
+                  return null;
+                })
+              );
+              
+              const grnResults = await Promise.all(grnLinePromises);
+              
+              // Sum up accepted quantities per line_id
+              grnResults.forEach((grnWithLines) => {
+                const grnData = grnWithLines as GRN | null;
+                if (grnData && Array.isArray(grnData.lines)) {
+                  grnData.lines.forEach((line) => {
+                    const lineId = line.line_id;
+                    const acceptedQty = safeNumber(line.quantity_accepted);
+                    if (lineId && acceptedQty > 0) {
+                      alreadyAcceptedMap[lineId] = (alreadyAcceptedMap[lineId] || 0) + acceptedQty;
+                    }
+                  });
+                }
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching previous GRNs:', error);
+          // Continue even if we can't fetch previous GRNs
+        }
+        
+        setAlreadyAcceptedByLine(alreadyAcceptedMap);
+        setHasPreviousGRNs(hasPrevious);
+        console.log('Already accepted quantities by line:', alreadyAcceptedMap);
+        console.log('Has previous GRNs:', hasPrevious);
+        
         // Initialize GRN lines from PO lines with proper type conversion and fallbacks
-        const initialGRNLines: GRNLine[] = lines.map(line => ({
+        const initialGRNLines: GRNLine[] = lines.map(line => {
+          const unitPrice = safeNumber(line.unit_price);
+          const taxRate = safeNumber(line.tax_rate);
+
+          return {
           line_id: line.line_id || 0,
           line_number: line.line_number || 1,
           item_code: line.item_code || `ITEM${line.line_number || 1}`,
@@ -177,23 +279,31 @@ export const GRNForm: React.FC<GRNFormProps> = ({
           quantity_received: 0,
           quantity_accepted: 0,
           quantity_rejected: 0,
-          unit_price: safeNumber(line.unit_price),
+            unit_price: unitPrice,
           line_amount: 0,
+            // Carry tax metadata from the PO so we can calculate GRN tax based on accepted quantity
+            tax_rate: taxRate,
+            tax_amount: 0,
           lot_number: '',
           serial_number: '',
           expiration_date: '',
           status: 'DRAFT',
           rejection_reason: '',
           notes: ''
-        }));
+          };
+        });
+        
+        console.log('Initial GRN Lines:', initialGRNLines);
         setGRNLines(initialGRNLines);
       } catch (error) {
         console.error('Error fetching PO lines:', error);
         toast({
           title: "Error",
-          description: "Failed to fetch purchase order lines",
+          description: error instanceof Error ? error.message : "Failed to fetch purchase order lines",
           variant: "destructive"
         });
+        setPOLines([]);
+        setGRNLines([]);
       }
     }
   };
@@ -201,27 +311,56 @@ export const GRNForm: React.FC<GRNFormProps> = ({
   const updateGRNLine = (index: number, field: keyof GRNLine, value: string | number) => {
     const updatedLines = [...grnLines];
     updatedLines[index] = { ...updatedLines[index], [field]: value };
+    const line = updatedLines[index];
 
-    // Calculate line amount based on accepted quantity
-    if (field === 'quantity_accepted' || field === 'quantity_rejected') {
-      const line = updatedLines[index];
-      const acceptedQty = safeNumber(line.quantity_accepted);
-      const unitPrice = safeNumber(line.unit_price);
-      line.line_amount = acceptedQty * unitPrice;
+    // If the user explicitly changed the status, don't auto-adjust anything else here
+    if (field === 'status') {
+      setGRNLines(updatedLines);
+      return;
     }
 
-    // Auto-calculate received quantity if accepted + rejected changes
-    if (field === 'quantity_accepted' || field === 'quantity_rejected') {
-      const line = updatedLines[index];
+    // Auto-calculate rejected quantity when received or accepted changes
+    if (field === 'quantity_received' || field === 'quantity_accepted') {
+      const receivedQty = safeNumber(line.quantity_received);
+      const acceptedQty = safeNumber(line.quantity_accepted);
+      // Rejected = Received - Accepted
+      line.quantity_rejected = Math.max(0, receivedQty - acceptedQty);
+    }
+
+    // Auto-calculate received quantity if rejected changes (when user manually enters rejected)
+    if (field === 'quantity_rejected') {
       const acceptedQty = safeNumber(line.quantity_accepted);
       const rejectedQty = safeNumber(line.quantity_rejected);
+      // Received = Accepted + Rejected
       line.quantity_received = acceptedQty + rejectedQty;
     }
 
-    // Update total amount
+    // Calculate line amount (excluding tax) and tax amount based on accepted quantity
+    if (field === 'quantity_accepted' || field === 'quantity_rejected' || field === 'quantity_received') {
+      const acceptedQty = safeNumber(line.quantity_accepted);
+      const unitPrice = safeNumber(line.unit_price);
+      const taxRate = safeNumber(line.tax_rate);
+
+      // Base line amount (without tax)
+      line.line_amount = acceptedQty * unitPrice;
+      // Tax amount based on accepted quantity and tax rate
+      line.tax_amount = line.line_amount * (taxRate / 100);
+
+      // Auto-update status based on quantities when still in Draft
+      if (line.status === 'DRAFT') {
+        if (acceptedQty > 0 && safeNumber(line.quantity_rejected) === 0) {
+          line.status = 'ACCEPTED';
+        } else if (acceptedQty === 0 && safeNumber(line.quantity_rejected) > 0) {
+          line.status = 'REJECTED';
+        }
+      }
+    }
+
+    // Update total amount (including tax)
     const totalAmount = updatedLines.reduce((sum, line) => {
       const amount = safeNumber(line.line_amount);
-      return sum + amount;
+      const tax = safeNumber(line.tax_amount);
+      return sum + amount + tax;
     }, 0);
 
     setFormData(prev => ({ ...prev, total_amount: totalAmount.toString() }));
@@ -478,12 +617,16 @@ export const GRNForm: React.FC<GRNFormProps> = ({
                     <TableHead className="w-24">Ordered</TableHead>
                     <TableHead className="w-24">Received</TableHead>
                     <TableHead className="w-24">Accepted</TableHead>
+                    {hasPreviousGRNs && (
+                      <TableHead className="w-24">Already Accepted</TableHead>
+                    )}
                     <TableHead className="w-24">Rejected</TableHead>
                     <TableHead className="w-32">Unit Price</TableHead>
-                    <TableHead className="w-32">Line Amount</TableHead>
+                    <TableHead className="w-24">Tax %</TableHead>
+                    <TableHead className="w-32">Tax Amount</TableHead>
+                    <TableHead className="w-32">Line Total</TableHead>
                     <TableHead className="w-32">Lot Number</TableHead>
                     <TableHead className="w-32">Expiration</TableHead>
-                    <TableHead className="w-32">Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -520,19 +663,38 @@ export const GRNForm: React.FC<GRNFormProps> = ({
                           className="w-20"
                         />
                       </TableCell>
+                      {hasPreviousGRNs && (
+                        <TableCell className="text-sm text-gray-600 font-medium">
+                          {alreadyAcceptedByLine[line.line_id] || 0}
+                        </TableCell>
+                      )}
                       <TableCell>
                         <Input
                           type="number"
                           step="0.01"
                           min="0"
-                          max={line.quantity_received}
                           value={line.quantity_rejected}
                           onChange={(e) => updateGRNLine(index, 'quantity_rejected', parseFloat(e.target.value) || 0)}
                           className="w-20"
+                          readOnly
                         />
                       </TableCell>
-                      <TableCell className="text-sm">${safeNumber(line.unit_price).toFixed(2)}</TableCell>
-                      <TableCell className="text-sm font-semibold">${safeNumber(line.line_amount).toFixed(2)}</TableCell>
+                      <TableCell className="text-sm">
+                        ${safeNumber(line.unit_price).toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {safeNumber(line.tax_rate).toFixed(2)}%
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        ${safeNumber(line.tax_amount).toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-sm font-semibold">
+                        ${(() => {
+                          const base = safeNumber(line.line_amount);
+                          const tax = safeNumber(line.tax_amount);
+                          return (base + tax).toFixed(2);
+                        })()}
+                      </TableCell>
                       <TableCell>
                         <Input
                           type="text"
@@ -548,22 +710,8 @@ export const GRNForm: React.FC<GRNFormProps> = ({
                           value={line.expiration_date}
                           onChange={(e) => updateGRNLine(index, 'expiration_date', e.target.value)}
                           className="w-28"
+                          placeholder="dd/mm/yyyy"
                         />
-                      </TableCell>
-                      <TableCell>
-                        <Select 
-                          value={line.status} 
-                          onValueChange={(value) => updateGRNLine(index, 'status', value)}
-                        >
-                          <SelectTrigger className="w-24">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="DRAFT">Draft</SelectItem>
-                            <SelectItem value="ACCEPTED">Accepted</SelectItem>
-                            <SelectItem value="REJECTED">Rejected</SelectItem>
-                          </SelectContent>
-                        </Select>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -575,7 +723,7 @@ export const GRNForm: React.FC<GRNFormProps> = ({
       )}
 
       {/* Rejection Reasons */}
-      {grnLines.some(line => line.status === 'REJECTED') && (
+      {grnLines.some(line => Number(line.quantity_rejected) > 0) && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
@@ -589,7 +737,7 @@ export const GRNForm: React.FC<GRNFormProps> = ({
           <CardContent>
             <div className="space-y-4">
               {grnLines.map((line, index) => (
-                line.status === 'REJECTED' && (
+                Number(line.quantity_rejected) > 0 && (
                   <div key={index} className="space-y-2">
                     <Label className="text-sm font-medium">
                       {line.item_code} - {line.item_name}

@@ -25,7 +25,8 @@ import {
   FileText,
   Layers,
   Link2,
-  ArrowLeft
+  ArrowLeft,
+  Search
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -110,9 +111,12 @@ interface ChartOfAccountSetupRef {
 
 interface ChartOfAccountSetupProps {
   onBackRef?: React.MutableRefObject<ChartOfAccountSetupRef | null>;
+  onSectionChange?: (
+    section: 'structure-definition' | 'instances-assignments' | 'header-assignments' | null
+  ) => void;
 }
 
-const ChartOfAccountSetup = ({ onBackRef }: ChartOfAccountSetupProps) => {
+const ChartOfAccountSetup = ({ onBackRef, onSectionChange }: ChartOfAccountSetupProps) => {
   const { toast } = useToast();
   
   // State for Structure Definition
@@ -147,7 +151,7 @@ const ChartOfAccountSetup = ({ onBackRef }: ChartOfAccountSetupProps) => {
   const [structureTab, setStructureTab] = useState<'chart-of-accounts' | 'segments'>('chart-of-accounts');
   const [activeSection, setActiveSection] = useState<'structure-definition' | 'instances-assignments' | 'header-assignments' | null>(null);
 
-  // Expose state to parent via ref
+  // Expose state to parent via ref / callback
   useEffect(() => {
     if (onBackRef) {
       onBackRef.current = {
@@ -155,7 +159,11 @@ const ChartOfAccountSetup = ({ onBackRef }: ChartOfAccountSetupProps) => {
         setActiveSection
       };
     }
-  }, [activeSection, onBackRef]);
+
+    if (onSectionChange) {
+      onSectionChange(activeSection);
+    }
+  }, [activeSection, onBackRef, onSectionChange]);
 
   // State for showing/hiding segment creation form
   const [showSegmentForm, setShowSegmentForm] = useState(false);
@@ -305,6 +313,8 @@ const ChartOfAccountSetup = ({ onBackRef }: ChartOfAccountSetupProps) => {
 
   // State for Header Assignments
   const [headerAssignments, setHeaderAssignments] = useState<HeaderAssignment[]>([]);
+  const [showHeaderAssignmentForm, setShowHeaderAssignmentForm] = useState(false);
+  const [headerAssignmentSearchTerm, setHeaderAssignmentSearchTerm] = useState("");
   const [newHeaderAssignment, setNewHeaderAssignment] = useState({
     headerId: "HDR-001",
     coaInstance: "",
@@ -811,6 +821,7 @@ const ChartOfAccountSetup = ({ onBackRef }: ChartOfAccountSetupProps) => {
           financialModules: [],
           validationRules: []
         });
+        setShowHeaderAssignmentForm(false);
         toast({
           title: "Success",
           description: "Header assignment created successfully",
@@ -832,11 +843,6 @@ const ChartOfAccountSetup = ({ onBackRef }: ChartOfAccountSetupProps) => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Chart of Accounts Setup</h1>
-        <p className="text-gray-600 mt-2">Configure account structures for distribution operations</p>
-      </div>
-
       {/* Tile Navigation (shown when no section is active) */}
       {!activeSection && (
         <div className="space-y-6">
@@ -890,30 +896,7 @@ const ChartOfAccountSetup = ({ onBackRef }: ChartOfAccountSetupProps) => {
       {activeSection && (
         <Card className="bg-white shadow-lg">
           <CardContent className="p-6">
-            <div className="mb-6">
-              <div className="flex items-start gap-4">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setActiveSection(null)}
-                  className="h-12 w-12 mt-1 hover:bg-gray-100"
-                >
-                  <ArrowLeft className="h-6 w-6 text-gray-700" />
-                </Button>
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900">
-                    {activeSection === 'structure-definition' && 'Structure Definition'}
-                    {activeSection === 'instances-assignments' && 'Instances & Assignments'}
-                    {activeSection === 'header-assignments' && 'Header Assignments'}
-                  </h2>
-                  <p className="text-sm text-gray-600 mt-1">
-                    {activeSection === 'structure-definition' && 'Configure Chart of Accounts structures and segments'}
-                    {activeSection === 'instances-assignments' && 'Create CoA instances and manage ledger assignments'}
-                    {activeSection === 'header-assignments' && 'Assign Chart of Accounts headers to ledgers and modules'}
-                  </p>
-                </div>
-              </div>
-            </div>
+            
 
             <div className="space-y-6">
 
@@ -925,19 +908,9 @@ const ChartOfAccountSetup = ({ onBackRef }: ChartOfAccountSetupProps) => {
                 onValueChange={(value) => setStructureTab(value as 'chart-of-accounts' | 'segments')}
                 className="space-y-6"
               >
-                <TabsList className="grid w-full grid-cols-1 gap-2 rounded-2xl bg-slate-100 p-1 sm:grid-cols-2">
-                  <TabsTrigger
-                    value="chart-of-accounts"
-                    className="rounded-xl px-4 py-3 text-sm font-semibold transition-all data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-gray-900"
-                  >
-                    Chart of Accounts
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="segments"
-                    className="rounded-xl px-4 py-3 text-sm font-semibold transition-all data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-gray-900"
-                  >
-                    Segments
-                  </TabsTrigger>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="chart-of-accounts">Chart of Accounts</TabsTrigger>
+                  <TabsTrigger value="segments">Segments</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="chart-of-accounts" className="space-y-6">
@@ -1821,12 +1794,145 @@ const ChartOfAccountSetup = ({ onBackRef }: ChartOfAccountSetupProps) => {
             {/* Header Assignments Section */}
             {activeSection === 'header-assignments' && (
               <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Header Assignments</h3>
-                <p className="text-gray-600 mb-6">Assign Chart of Accounts headers to ledgers and financial modules.</p>
+                {/* Header with Search and Create Button */}
+                <div className="flex items-center justify-between gap-4">
+                  <div className="relative flex-1 max-w-md">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="Search header assignments..."
+                      value={headerAssignmentSearchTerm}
+                      onChange={(e) => setHeaderAssignmentSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  <Button 
+                    onClick={() => setShowHeaderAssignmentForm(true)}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create Header Assignment
+                  </Button>
               </div>
 
-              <div className="space-y-4">
+                {/* Header Assignments Table */}
+                <Card className="bg-white shadow-lg">
+                  <CardHeader>
+                    <CardTitle>Header Assignments</CardTitle>
+                    <CardDescription>
+                      Assign Chart of Accounts headers to ledgers and financial modules
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {(() => {
+                      // Filter header assignments based on search term
+                      const filteredAssignments = headerAssignments.filter((assignment) => {
+                        const searchLower = headerAssignmentSearchTerm.toLowerCase();
+                        return (
+                          assignment.headerId.toLowerCase().includes(searchLower) ||
+                          assignment.coaInstance.toLowerCase().includes(searchLower) ||
+                          assignment.assignedLedgers.some(ledger => ledger.toLowerCase().includes(searchLower)) ||
+                          assignment.financialModules.some(module => module.toLowerCase().includes(searchLower))
+                        );
+                      });
+
+                      return filteredAssignments.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          {headerAssignmentSearchTerm 
+                            ? "No header assignments match your search criteria." 
+                            : "No header assignments found. Create your first header assignment to get started."}
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Header ID</TableHead>
+                                <TableHead>CoA Instance</TableHead>
+                                <TableHead>Assigned Ledgers</TableHead>
+                                <TableHead>Financial Modules</TableHead>
+                                <TableHead>Validation Rules</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {filteredAssignments.map((assignment) => (
+                                <TableRow key={assignment.id}>
+                                  <TableCell className="font-medium">{assignment.headerId}</TableCell>
+                                  <TableCell>{assignment.coaInstance}</TableCell>
+                                  <TableCell>
+                                    {assignment.assignedLedgers.length > 0 ? (
+                                      <div className="flex flex-wrap gap-1">
+                                        {assignment.assignedLedgers.map((ledger, idx) => (
+                                          <Badge key={idx} variant="outline" className="text-xs">
+                                            {ledger}
+                                          </Badge>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-gray-400 text-sm">None</span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {assignment.financialModules.length > 0 ? (
+                                      <div className="flex flex-wrap gap-1">
+                                        {assignment.financialModules.map((module, idx) => (
+                                          <Badge key={idx} variant="secondary" className="text-xs">
+                                            {module}
+                                          </Badge>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-gray-400 text-sm">None</span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    {assignment.validationRules.length > 0 ? (
+                                      <div className="flex flex-wrap gap-1">
+                                        {assignment.validationRules.map((rule, idx) => (
+                                          <Badge key={idx} variant="outline" className="text-xs bg-blue-50">
+                                            {rule}
+                                          </Badge>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-gray-400 text-sm">None</span>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+
+                {/* Create Header Assignment Dialog */}
+                <Dialog 
+                  open={showHeaderAssignmentForm} 
+                  onOpenChange={(open) => {
+                    if (!open) {
+                      setShowHeaderAssignmentForm(false);
+                      setNewHeaderAssignment({
+                        headerId: "",
+                        coaInstance: "",
+                        assignedLedgers: [],
+                        financialModules: [],
+                        validationRules: []
+                      });
+                    } else {
+                      setShowHeaderAssignmentForm(true);
+                    }
+                  }}
+                >
+                  <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>Create Header Assignment</DialogTitle>
+                      <DialogDescription>
+                        Assign Chart of Accounts headers to ledgers and financial modules
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-6 py-4">
                 <div>
                   <Label htmlFor="header-id">Header ID *</Label>
                   <Input
@@ -1834,13 +1940,14 @@ const ChartOfAccountSetup = ({ onBackRef }: ChartOfAccountSetupProps) => {
                     value={newHeaderAssignment.headerId}
                     onChange={(e) => setNewHeaderAssignment({ ...newHeaderAssignment, headerId: e.target.value })}
                     placeholder="HDR-001"
+                          className="mt-1"
                   />
                 </div>
 
                 <div>
                   <Label htmlFor="coa-instance">CoA Instance *</Label>
                   <Select value={newHeaderAssignment.coaInstance} onValueChange={(value) => setNewHeaderAssignment({ ...newHeaderAssignment, coaInstance: value })}>
-                    <SelectTrigger>
+                          <SelectTrigger className="mt-1">
                       <SelectValue placeholder="Select CoA Instance" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1853,7 +1960,7 @@ const ChartOfAccountSetup = ({ onBackRef }: ChartOfAccountSetupProps) => {
 
                 <div>
                   <h4 className="font-medium mb-3">Assign to Ledgers</h4>
-                  <div className="space-y-2">
+                        <div className="space-y-2 max-h-48 overflow-y-auto border rounded-md p-3">
                     {ledgersLoading ? (
                       <div className="flex items-center gap-2 text-sm text-gray-500">
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -2003,13 +2110,29 @@ const ChartOfAccountSetup = ({ onBackRef }: ChartOfAccountSetupProps) => {
                         </div>
                       </div>
                     </div>
-
-                    <div className="flex justify-end">
+                    </div>
+                    <DialogFooter>
+                      <Button 
+                        variant="outline"
+                        onClick={() => {
+                          setShowHeaderAssignmentForm(false);
+                          setNewHeaderAssignment({
+                            headerId: "",
+                            coaInstance: "",
+                            assignedLedgers: [],
+                            financialModules: [],
+                            validationRules: []
+                          });
+                        }}
+                      >
+                        Cancel
+                      </Button>
                       <Button onClick={handleCreateHeaderAssignment} className="bg-green-600 hover:bg-green-700">
                         Create Header Assignment
                       </Button>
-                    </div>
-                  </div>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
               </div>
             )}
             </div>

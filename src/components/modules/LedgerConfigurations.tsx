@@ -5,9 +5,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { 
   Plus, 
-  Loader2
+  Loader2,
+  Search,
+  FileText
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -41,6 +52,7 @@ const LedgerConfigurations = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [fetchingData, setFetchingData] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const [ledgerForm, setLedgerForm] = useState({
     name: "",
@@ -181,13 +193,30 @@ const LedgerConfigurations = () => {
     return type.charAt(0) + type.slice(1).toLowerCase();
   };
 
+  // Filter ledgers based on search term
+  const filteredLedgers = ledgers.filter((ledger) => {
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      ledger.ledger_name.toLowerCase().includes(searchLower) ||
+      ledger.ledger_type.toLowerCase().includes(searchLower) ||
+      ledger.currency.toLowerCase().includes(searchLower) ||
+      (ledger.coa_name && ledger.coa_name.toLowerCase().includes(searchLower)) ||
+      (ledger.coa_code && ledger.coa_code.toLowerCase().includes(searchLower)) ||
+      ledger.accounting_method.toLowerCase().includes(searchLower)
+    );
+  });
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Ledger Configurations</h1>
-          <p className="text-gray-600 mt-2">Manage accounting ledgers and transaction flows</p>
+      <div className="flex items-center justify-between gap-4">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input
+            placeholder="Search ledgers..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10"
+          />
         </div>
         <Button 
           onClick={() => setShowCreateModal(true)}
@@ -220,14 +249,16 @@ const LedgerConfigurations = () => {
                       <p className="text-gray-500 mt-2">Loading ledgers...</p>
                     </td>
                   </tr>
-                ) : ledgers.length === 0 ? (
+                ) : filteredLedgers.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-8 text-center text-gray-500">
-                      No ledgers found. Create your first ledger to get started.
+                      {searchTerm 
+                        ? "No ledgers match your search criteria." 
+                        : "No ledgers found. Create your first ledger to get started."}
                     </td>
                   </tr>
                 ) : (
-                  ledgers.map((ledger) => (
+                  filteredLedgers.map((ledger) => (
                     <tr key={ledger.id} className="border-b border-gray-100 hover:bg-gray-50/50">
                       <td className="py-3 px-4 text-sm font-medium text-gray-900">{ledger.ledger_name}</td>
                       <td className="py-3 px-4">
@@ -260,37 +291,44 @@ const LedgerConfigurations = () => {
       </Card>
 
       {/* Create New Ledger Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <Card className="w-full max-w-md bg-white shadow-2xl">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Create New Ledger</CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowCreateModal(false)}
-                  className="h-8 w-8 p-0"
-                >
-                  ×
-                </Button>
-              </div>
-              <CardDescription>Configure a new accounting ledger</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
+      <Dialog open={showCreateModal} onOpenChange={(open) => {
+        if (!open) {
+          setShowCreateModal(false);
+          resetLedgerForm();
+        } else {
+          setShowCreateModal(true);
+        }
+      }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-purple-600" />
+              Create New Ledger
+            </DialogTitle>
+            <DialogDescription>
+              Configure a new accounting ledger
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
                 <Label htmlFor="ledger-name">Ledger Name *</Label>
                 <Input
                   id="ledger-name"
                   value={ledgerForm.name}
                   onChange={(e) => setLedgerForm({ ...ledgerForm, name: e.target.value })}
                   placeholder="Enter ledger name"
+                  disabled={loading}
                 />
               </div>
 
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="type">Type</Label>
-                <Select value={ledgerForm.type} onValueChange={(value: 'PRIMARY' | 'SECONDARY' | 'SUBSIDIARY') => setLedgerForm({ ...ledgerForm, type: value })}>
+                <Select 
+                  value={ledgerForm.type} 
+                  onValueChange={(value: 'PRIMARY' | 'SECONDARY' | 'SUBSIDIARY') => setLedgerForm({ ...ledgerForm, type: value })}
+                  disabled={loading}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -302,9 +340,13 @@ const LedgerConfigurations = () => {
                 </Select>
               </div>
 
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="currency">Currency</Label>
-                <Select value={ledgerForm.currency} onValueChange={(value) => setLedgerForm({ ...ledgerForm, currency: value })}>
+                <Select 
+                  value={ledgerForm.currency} 
+                  onValueChange={(value) => setLedgerForm({ ...ledgerForm, currency: value })}
+                  disabled={loading}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -319,9 +361,13 @@ const LedgerConfigurations = () => {
                 </Select>
               </div>
 
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="coa">Chart of Accounts *</Label>
-                <Select value={ledgerForm.coa_instance_id} onValueChange={(value) => setLedgerForm({ ...ledgerForm, coa_instance_id: value })}>
+                <Select 
+                  value={ledgerForm.coa_instance_id} 
+                  onValueChange={(value) => setLedgerForm({ ...ledgerForm, coa_instance_id: value })}
+                  disabled={loading}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select CoA Instance" />
                   </SelectTrigger>
@@ -341,9 +387,13 @@ const LedgerConfigurations = () => {
                 </Select>
               </div>
 
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="method">Accounting Method</Label>
-                <Select value={ledgerForm.method} onValueChange={(value: 'ACCRUAL' | 'CASH') => setLedgerForm({ ...ledgerForm, method: value })}>
+                <Select 
+                  value={ledgerForm.method} 
+                  onValueChange={(value: 'ACCRUAL' | 'CASH') => setLedgerForm({ ...ledgerForm, method: value })}
+                  disabled={loading}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -354,29 +404,50 @@ const LedgerConfigurations = () => {
                 </Select>
               </div>
 
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={() => setShowCreateModal(false)}>
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={handleCreateLedger}
-                  disabled={loading}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Creating...
-                    </>
-                  ) : (
-                    'Create Ledger'
-                  )}
-                </Button>
+              <div className="space-y-2 md:col-span-2">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="ar-ap-enabled">AR/AP Enabled</Label>
+                    <p className="text-sm text-gray-500">Enable Accounts Receivable/Payable for this ledger</p>
+                  </div>
+                  <Switch
+                    id="ar-ap-enabled"
+                    checked={ledgerForm.ar_ap_enabled}
+                    onCheckedChange={(checked) => setLedgerForm({ ...ledgerForm, ar_ap_enabled: checked })}
+                    disabled={loading}
+                  />
+                </div>
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowCreateModal(false);
+                resetLedgerForm();
+              }}
+              disabled={loading}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleCreateLedger}
+              className="bg-green-600 hover:bg-green-700"
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                'Create Ledger'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

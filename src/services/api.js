@@ -1,4 +1,6 @@
-const API_BASE_URL = 'http://localhost:5000/api';
+// Use environment variable for API base URL, fallback to localhost for development
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+const API_ROOT_URL = import.meta.env.VITE_API_ROOT_URL || import.meta.env.VITE_API_BASE_URL?.replace(/\/api$/, '') || 'http://localhost:5000';
 
 class ApiService {
   constructor() {
@@ -27,7 +29,14 @@ class ApiService {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.message || 'Request failed');
+        const errorMessage = data.error || data.message || `Request failed with status ${response.status}`;
+        console.error('API Error Response:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorMessage,
+          data: data
+        });
+        throw new Error(errorMessage);
       }
 
       return data;
@@ -153,6 +162,13 @@ class ApiService {
     });
   }
 
+  async updateInventoryItem(id, data) {
+    return this.request(`/inventory-items/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
   // Bin Cards
   async getBinCards() {
     return this.request('/bin-cards');
@@ -226,7 +242,12 @@ class ApiService {
     });
   }
 
-
+  async updateInvoice(id, data) {
+    return this.request(`/invoices/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
 
   async getInvoice(id) {
     return this.request(`/invoices/${id}`);
@@ -253,11 +274,28 @@ class ApiService {
     });
   }
 
+  async updateReceipt(id, data) {
+    return this.request(`/receipts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async checkDraftReceiptConflicts(invoiceIds, excludeReceiptId = null) {
+    return this.request('/receipts/check-draft-conflicts', {
+      method: 'POST',
+      body: JSON.stringify({ 
+        invoice_ids: invoiceIds,
+        exclude_receipt_id: excludeReceiptId 
+      })
+    });
+  }
+
   // Update invoice status
-  async updateInvoiceStatus(id, status) {
+  async updateInvoiceStatus(id, status, approval_status) {
     return this.request(`/invoices/${id}/status`, {
       method: 'PATCH',
-      body: JSON.stringify({ status })
+      body: JSON.stringify({ status, approval_status })
     });
   }
 
@@ -395,6 +433,16 @@ class ApiService {
     return this.request(`/ap/payments/${paymentId}/applications`, {
       method: 'POST',
       body: JSON.stringify(data)
+    });
+  }
+
+  async checkDraftPaymentConflicts(invoiceIds, excludePaymentId = null) {
+    return this.request('/ap/payments/check-draft-conflicts', {
+      method: 'POST',
+      body: JSON.stringify({ 
+        invoice_ids: invoiceIds,
+        exclude_payment_id: excludePaymentId 
+      })
     });
   }
 
@@ -699,6 +747,13 @@ class ApiService {
     });
   }
 
+  async updatePurchaseOrderStatus(id, status, approval_status) {
+    return this.request(`/procurement/purchase-orders/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, approval_status })
+    });
+  }
+
   async deletePurchaseOrder(id) {
     return this.request(`/procurement/purchase-orders/${id}`, {
       method: 'DELETE'
@@ -729,8 +784,8 @@ class ApiService {
 
   // Procurement Suppliers and Users
   async getProcurementSuppliers() {
-    // Use direct URL to bypass API prefix and authentication
-    const url = 'http://localhost:5000/procurement-suppliers';
+    // Use API_ROOT_URL for endpoints that don't use /api prefix
+    const url = `${API_ROOT_URL}/procurement-suppliers`;
     const config = {
       method: 'GET',
       headers: {
@@ -893,6 +948,18 @@ class ApiService {
     return this.request(`/tax/rates/${id}`, {
       method: 'DELETE'
     });
+  }
+
+  // Companies API
+  async getCompanies(params = {}) {
+    const queryString = new URLSearchParams(params).toString();
+    const endpoint = queryString ? `/companies?${queryString}` : '/companies';
+    const response = await this.request(endpoint);
+    return response.data || response;
+  }
+
+  async getCompany(id) {
+    return this.request(`/companies/${id}`);
   }
 }
 

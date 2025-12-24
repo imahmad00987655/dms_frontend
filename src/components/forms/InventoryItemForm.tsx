@@ -41,26 +41,32 @@ interface TaxRate {
   status: string;
 }
 
-export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, onSave?: (item: InventoryItem) => void }) => {
-  const [itemData, setItemData] = useState<InventoryItem>({
-    item_code: "",
-    item_name: "",
-    description: "",
-    category: "",
-    location: "",
-    brand: "",
-    supplier_id: undefined,
-    barcode: "",
-    item_purchase_rate: 0,
-    item_sell_price: 0,
-    tax_status: "",
-    uom_type: "",
-    box_quantity: 0,
-    uom_type_detail: 0,
-    income_account_segment_id: undefined,
-    cogs_account_segment_id: undefined,
-    inventory_account_segment_id: undefined
-  });
+export const InventoryItemForm = ({
+  onClose,
+  onSave,
+  initialData
+}: { onClose: () => void, onSave?: (item: InventoryItem) => void, initialData?: InventoryItem }) => {
+  const [itemData, setItemData] = useState<InventoryItem>(() => ({
+    item_code: initialData?.item_code || "",
+    item_name: initialData?.item_name || "",
+    description: initialData?.description || "",
+    category: initialData?.category || "",
+    location: initialData?.location || "",
+    brand: initialData?.brand || "",
+    supplier_id: initialData?.supplier_id,
+    barcode: initialData?.barcode || "",
+    item_purchase_rate: Number(initialData?.item_purchase_rate) || 0,
+    item_sell_price: Number(initialData?.item_sell_price) || 0,
+    tax_status: initialData?.tax_status || "",
+    uom_type: initialData?.uom_type || "",
+    box_quantity: Number(initialData?.box_quantity) || 0,
+    packet_quantity: Number(initialData?.packet_quantity) || 0,
+    uom_type_detail: Number(initialData?.uom_type_detail) || 0,
+    income_account_segment_id: initialData?.income_account_segment_id,
+    cogs_account_segment_id: initialData?.cogs_account_segment_id,
+    inventory_account_segment_id: initialData?.inventory_account_segment_id,
+    id: initialData?.id
+  }));
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loadingSuppliers, setLoadingSuppliers] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,6 +108,14 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
           supplier.supplier_type && supplier.supplier_type.toLowerCase() === 'vendor'
         );
         setSuppliers(vendorSuppliers);
+        
+        // If editing and we have a supplier_id but brand is empty or looks like an ID, set brand to supplier name
+        if (initialData?.supplier_id && (!initialData.brand || initialData.brand === initialData.supplier_id.toString())) {
+          const supplier = vendorSuppliers.find(s => s.supplier_id === initialData.supplier_id);
+          if (supplier) {
+            setItemData(prev => ({ ...prev, brand: supplier.supplier_name }));
+          }
+        }
       } catch (error) {
         console.error('Error fetching suppliers:', error);
         setError('Failed to load suppliers');
@@ -111,7 +125,7 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
     };
 
     fetchSuppliers();
-  }, []);
+  }, [initialData]);
 
   // Fetch tax rates on component mount
   useEffect(() => {
@@ -231,16 +245,38 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
     setSuccess(null);
     setSaving(true);
     
-    // Prepare the item data, sending supplier_id as brand
+    // Prepare the item data, storing supplier name as brand
+    // Ensure all numeric values are proper numbers
     const newItem: InventoryItem = {
       ...itemData,
-      brand: itemData.supplier_id?.toString() || '', // Store supplier_id as brand
-      supplier_id: undefined // Remove supplier_id from the payload
+      brand: itemData.brand || '', // Store supplier name as brand (already set when supplier is selected)
+      packet_quantity: typeof itemData.packet_quantity === 'number' 
+        ? itemData.packet_quantity 
+        : (itemData.packet_quantity ? parseFloat(String(itemData.packet_quantity)) : 0),
+      box_quantity: typeof itemData.box_quantity === 'number' 
+        ? itemData.box_quantity 
+        : (itemData.box_quantity ? parseFloat(String(itemData.box_quantity)) : 0),
+      item_purchase_rate: typeof itemData.item_purchase_rate === 'number' 
+        ? itemData.item_purchase_rate 
+        : (itemData.item_purchase_rate ? parseFloat(String(itemData.item_purchase_rate)) : 0),
+      item_sell_price: typeof itemData.item_sell_price === 'number' 
+        ? itemData.item_sell_price 
+        : (itemData.item_sell_price ? parseFloat(String(itemData.item_sell_price)) : 0)
     };
     
+    // Debug: Log the data being sent
+    console.log('Saving item data:', newItem);
+    console.log('packet_quantity value:', newItem.packet_quantity, 'Type:', typeof newItem.packet_quantity);
+    console.log('Full itemData:', itemData);
+    
     try {
-      await apiService.createInventoryItem(newItem);
-      setSuccess("Item saved successfully!");
+      if (initialData?.id) {
+        await apiService.updateInventoryItem(initialData.id, newItem);
+        setSuccess("Item updated successfully!");
+      } else {
+        await apiService.createInventoryItem(newItem);
+        setSuccess("Item saved successfully!");
+      }
       if (onSave) {
         onSave(newItem);
       } else {
@@ -275,7 +311,14 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
             <Label htmlFor="supplier">Brand (Company Name)</Label>
             <Select
               value={itemData.supplier_id?.toString() || ""}
-              onValueChange={(value) => setItemData({...itemData, supplier_id: value ? parseInt(value) : undefined})}
+              onValueChange={(value) => {
+                const selectedSupplier = suppliers.find(s => s.supplier_id.toString() === value);
+                setItemData({
+                  ...itemData, 
+                  supplier_id: value ? parseInt(value) : undefined,
+                  brand: selectedSupplier ? selectedSupplier.supplier_name : ''
+                });
+              }}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select Brand" />
@@ -431,8 +474,8 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
         <div className="space-y-4">
           <Label>UOM (Unit of Measurement)</Label>
           
-          {/* Boxes Input */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Boxes and Packets Input */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <Label htmlFor="boxes">Number of Boxes</Label>
               <Input
@@ -443,6 +486,22 @@ export const InventoryItemForm = ({ onClose, onSave }: { onClose: () => void, on
                 placeholder="Enter number of boxes"
                 value={itemData.box_quantity}
                 onChange={(e) => setItemData({...itemData, box_quantity: parseInt(e.target.value) || 0})}
+              />
+            </div>
+            <div>
+              <Label htmlFor="packets">Number of Packets</Label>
+              <Input
+                id="packets"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="Enter number of packets per box"
+                value={itemData.packet_quantity ?? 0}
+                onChange={(e) => {
+                  const value = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
+                  console.log('Updating packet_quantity to:', value);
+                  setItemData({...itemData, packet_quantity: value});
+                }}
               />
             </div>
             <div>

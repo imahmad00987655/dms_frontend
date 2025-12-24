@@ -186,50 +186,88 @@ const TaxTypesForm = () => {
             <DialogTitle>Tax Type Details</DialogTitle>
           </DialogHeader>
           {viewingTaxType && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-sm font-medium text-muted-foreground">Code</Label>
-                  <p className="text-sm font-medium">{viewingTaxType.code}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-muted-foreground">Name</Label>
-                  <p className="text-sm font-medium">{viewingTaxType.name}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-muted-foreground">Regime</Label>
-                  <p className="text-sm font-medium">{viewingTaxType.regimeName}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-muted-foreground">Operating Unit</Label>
-                  <p className="text-sm font-medium">{viewingTaxType.operatingUnit}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-muted-foreground">Liability Account</Label>
-                  <p className="text-sm font-medium">{viewingTaxType.liabilityAccount}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-muted-foreground">Rounding Account</Label>
-                  <p className="text-sm font-medium">{viewingTaxType.roundingAccount}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-muted-foreground">Status</Label>
-                  <Badge variant={viewingTaxType.status === 'Active' ? 'default' : 'secondary'}>
-                    {viewingTaxType.status}
-                  </Badge>
+            <div className="space-y-6">
+              {/* Basic Information */}
+              <div>
+                <h3 className="text-sm font-semibold mb-3">Basic Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-sm font-medium text-muted-foreground">Code</Label>
+                    <p className="text-sm font-medium">{viewingTaxType.code}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium text-muted-foreground">Name</Label>
+                    <p className="text-sm font-medium">{viewingTaxType.name}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium text-muted-foreground">Regime</Label>
+                    <p className="text-sm font-medium">{viewingTaxType.regimeName}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium text-muted-foreground">Status</Label>
+                    <Badge variant={viewingTaxType.status === 'Active' ? 'default' : 'secondary'}>
+                      {viewingTaxType.status}
+                    </Badge>
+                  </div>
                 </div>
               </div>
+
+              {/* Organization Details */}
               <div>
-                <Label className="text-sm font-medium text-muted-foreground">Flags</Label>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {viewingTaxType.withholdingTax && (
+                <h3 className="text-sm font-semibold mb-3">Organization Details</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-sm font-medium text-muted-foreground">Operating Unit</Label>
+                    <p className="text-sm font-medium">{viewingTaxType.operatingUnit || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium text-muted-foreground">Ledger</Label>
+                    <p className="text-sm font-medium">{viewingTaxType.ledger || 'N/A'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Account Configuration */}
+              <div>
+                <h3 className="text-sm font-semibold mb-3">Account Configuration</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-sm font-medium text-muted-foreground">Liability Account</Label>
+                    <p className="text-sm font-medium">{viewingTaxType.liabilityAccount || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium text-muted-foreground">Input Tax Account</Label>
+                    <p className="text-sm font-medium">{viewingTaxType.inputTaxAccount || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium text-muted-foreground">Output Tax Account</Label>
+                    <p className="text-sm font-medium">{viewingTaxType.outputTaxAccount || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium text-muted-foreground">Rounding Account</Label>
+                    <p className="text-sm font-medium">{viewingTaxType.roundingAccount || 'N/A'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tax Type Flags */}
+              <div>
+                <Label className="text-sm font-semibold mb-3 block">Tax Type Flags</Label>
+                <div className="flex flex-wrap gap-2">
+                  {viewingTaxType.withholdingTax ? (
                     <Badge variant="secondary">Withholding Tax</Badge>
+                  ) : (
+                    <Badge variant="outline" className="opacity-50">Withholding Tax</Badge>
                   )}
-                  {viewingTaxType.selfAssessed && (
+                  {viewingTaxType.selfAssessed ? (
                     <Badge variant="secondary">Self Assessed</Badge>
+                  ) : (
+                    <Badge variant="outline" className="opacity-50">Self Assessed</Badge>
                   )}
-                  {viewingTaxType.recoverable && (
+                  {viewingTaxType.recoverable ? (
                     <Badge variant="secondary">Recoverable</Badge>
+                  ) : (
+                    <Badge variant="outline" className="opacity-50">Recoverable</Badge>
                   )}
                 </div>
               </div>

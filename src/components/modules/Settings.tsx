@@ -111,6 +111,10 @@ const Settings = () => {
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [companySetupActiveModule, setCompanySetupActiveModule] = useState<'companies' | 'chart-of-account' | 'ledger' | null>(null);
+  const [chartOfAccountActiveSection, setChartOfAccountActiveSection] = useState<
+    'structure-definition' | 'instances-assignments' | 'header-assignments' | null
+  >(null);
   const companySetupRef = React.useRef<{ activeModule: 'companies' | 'chart-of-account' | 'ledger' | null; setActiveModule: (module: 'companies' | 'chart-of-account' | 'ledger' | null) => void; chartOfAccountSetupRef?: React.MutableRefObject<{ activeSection: 'structure-definition' | 'instances-assignments' | 'header-assignments' | null; setActiveSection: (section: 'structure-definition' | 'instances-assignments' | 'header-assignments' | null) => void } | null> } | null>(null);
   const [settings, setSettings] = useState({
     // Profile settings
@@ -144,6 +148,79 @@ const Settings = () => {
     { id: 3, name: "Mike Johnson", email: "mike.johnson@company.com", role: "User", status: "Inactive" },
     { id: 4, name: "Sarah Wilson", email: "sarah.wilson@company.com", role: "User", status: "Active" },
   ]);
+
+  const getHeaderTitle = () => {
+    if (!activeTab) {
+      return "Settings";
+    }
+
+    // Special handling for nested Company Setup modules
+    if (activeTab === "company-setup") {
+      if (companySetupActiveModule === "companies") return "Companies";
+
+      if (companySetupActiveModule === "chart-of-account") {
+        const activeSection = chartOfAccountActiveSection;
+
+        if (activeSection === "structure-definition") return "Structure Definition";
+        if (activeSection === "instances-assignments") return "Instances & Assignments";
+        if (activeSection === "header-assignments") return "Header Assignments";
+
+        // Default Chart of Account heading when no inner section is active
+        return "Chart of Account";
+      }
+
+      if (companySetupActiveModule === "ledger") return "Ledger Configurations";
+
+      // Company Setup overview (no inner module active)
+      return "Company Setup";
+    }
+
+    return settingsTabs.find((tab) => tab.value === activeTab)?.label || "Settings";
+  };
+
+  const getHeaderDescription = () => {
+    if (!activeTab) {
+      return "Manage your account and application preferences";
+    }
+
+    // Special handling for nested Company Setup modules
+    if (activeTab === "company-setup") {
+      if (companySetupActiveModule === "companies") {
+        return "Manage distributor companies and their information";
+      }
+
+      if (companySetupActiveModule === "chart-of-account") {
+        const activeSection = chartOfAccountActiveSection;
+
+        if (activeSection === "structure-definition") {
+          return "Configure Chart of Accounts structures and segments";
+        }
+
+        if (activeSection === "instances-assignments") {
+          return "Create CoA instances and manage ledger assignments";
+        }
+
+        if (activeSection === "header-assignments") {
+          return "Assign Chart of Accounts headers to ledgers and modules";
+        }
+
+        // Default Chart of Account description when no inner section is active
+        return "Configure chart of accounts and segments";
+      }
+
+      if (companySetupActiveModule === "ledger") {
+        return "Manage accounting ledgers and flows";
+      }
+
+      // Company Setup overview (no inner module active)
+      return "Manage entities & locations";
+    }
+
+    return (
+      settingsTabs.find((tab) => tab.value === activeTab)?.description ||
+      "Manage your account and application preferences"
+    );
+  };
 
   // Fetch user profile
   const fetchProfile = async () => {
@@ -221,6 +298,20 @@ const Settings = () => {
     fetchProfile();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Reset nested Company Setup state when switching away
+  useEffect(() => {
+    if (activeTab !== 'company-setup') {
+      setCompanySetupActiveModule(null);
+      setChartOfAccountActiveSection(null);
+      return;
+    }
+
+    // If we're in Company Setup but not within Chart of Account, clear the inner section
+    if (companySetupActiveModule !== 'chart-of-account') {
+      setChartOfAccountActiveSection(null);
+    }
+  }, [activeTab, companySetupActiveModule]);
 
   const handleSave = async (section: string) => {
     if (section === 'Profile') {
@@ -385,14 +476,17 @@ const Settings = () => {
                 size="icon"
                 onClick={() => {
                   // If we're in company-setup and CompanySetup has an activeModule
-                  if (activeTab === 'company-setup' && companySetupRef.current?.activeModule) {
+                  if (activeTab === 'company-setup' && companySetupActiveModule) {
                     // If ChartOfAccountSetup has an activeSection, go back to ChartOfAccountSetup overview first
-                    if (companySetupRef.current.activeModule === 'chart-of-account' && 
-                        companySetupRef.current.chartOfAccountSetupRef?.current?.activeSection) {
+                    if (companySetupActiveModule === 'chart-of-account' && 
+                        companySetupRef.current?.chartOfAccountSetupRef?.current?.activeSection) {
                       companySetupRef.current.chartOfAccountSetupRef.current.setActiveSection(null);
                     } else {
                       // Otherwise, go back to CompanySetup overview
-                      companySetupRef.current.setActiveModule(null);
+                      if (companySetupRef.current) {
+                        companySetupRef.current.setActiveModule(null);
+                      }
+                      setCompanySetupActiveModule(null);
                     }
                   } else {
                     // Otherwise, go back to Settings overview
@@ -406,9 +500,11 @@ const Settings = () => {
             )}
             <div>
               <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">
-                Settings
+                {getHeaderTitle()}
               </h1>
-              <p className="text-gray-600 mt-1">Manage your account and application preferences</p>
+              <p className="text-gray-600 mt-1">
+                {getHeaderDescription()}
+              </p>
             </div>
           </div>
           <Badge variant="outline" className="w-fit">
@@ -911,7 +1007,11 @@ const Settings = () => {
 
           {/* Company Setup */}
           <TabsContent value="company-setup" className="space-y-6">
-            <CompanySetup onBackRef={companySetupRef} />
+            <CompanySetup 
+              onBackRef={companySetupRef} 
+              onActiveModuleChange={setCompanySetupActiveModule}
+              onChartOfAccountSectionChange={setChartOfAccountActiveSection}
+            />
           </TabsContent>
 
           {/* Users & Privileges Settings */}

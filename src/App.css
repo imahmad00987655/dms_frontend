@@ -5,6 +5,26 @@
   text-align: center;
 }
 
+/* Ensure fixed positioned modals cover the entire viewport without white strips */
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Ensure modals overlay starts at the very top with no gaps - target Tailwind classes */
+.fixed.inset-0 {
+  top: 0 !important;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Remove any top spacing from modal content containers */
+.fixed.inset-0 > .bg-white {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
 .logo {
   height: 6em;
   padding: 1.5em;

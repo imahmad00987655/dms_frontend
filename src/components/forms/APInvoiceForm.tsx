@@ -83,6 +83,7 @@ interface APInvoice {
   invoice_number: string;
   supplier_id: number;
   bill_to_site_id: number;
+  receipt_id?: number | null;
   invoice_date: string;
   due_date: string;
   payment_terms_id: number;
@@ -97,10 +98,37 @@ interface APInvoice {
   lines?: InvoiceLine[];
 }
 
+interface GRNHeaderForInvoice {
+  receipt_id: number;
+  receipt_number: string;
+  header_id: number;
+  po_number?: string;
+  supplier_id?: number;
+  supplier_site_id?: number;
+  supplier_name?: string;
+  currency_code?: string;
+  exchange_rate?: number;
+  total_amount?: number;
+}
+
+interface GRNLineForInvoice {
+  line_id: number;
+  line_number: number;
+  item_code?: string;
+  item_name: string;
+  description?: string;
+  quantity_accepted: number | string;
+  unit_price: number | string;
+  line_amount: number | string;
+  tax_rate?: number | string;
+  tax_amount?: number | string;
+}
+
 export const APInvoiceForm = ({ onClose, onSuccess, suppliers, invoiceToEdit }: APInvoiceFormProps) => {
   const [formData, setFormData] = useState<{
     supplier_id: string;
     bill_to_site_id: string;
+    receipt_id: string;
     invoice_number: string;
     invoice_date: string;
     due_date: string;
@@ -116,6 +144,7 @@ export const APInvoiceForm = ({ onClose, onSuccess, suppliers, invoiceToEdit }: 
   }>({
     supplier_id: "",
     bill_to_site_id: "",
+    receipt_id: "",
     invoice_number: "",
     invoice_date: new Date().toISOString().split('T')[0],
     due_date: "",
@@ -154,12 +183,64 @@ export const APInvoiceForm = ({ onClose, onSuccess, suppliers, invoiceToEdit }: 
   const [itemSearchValue, setItemSearchValue] = useState<{ [key: number]: string }>({});
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
   const invoiceNumberGenerated = useRef(false);
+  const lastChangedField = useRef<'payment_terms' | 'due_date' | 'invoice_date' | null>(null);
+  const [grns, setGrns] = useState<GRNHeaderForInvoice[]>([]);
+  const [grnLoading, setGrnLoading] = useState(false);
 
   // Fetch inventory items and tax rates on mount
   useEffect(() => {
     loadInventoryItems();
     loadTaxRates();
+    loadGRNs();
   }, []);
+
+  const loadGRNs = async () => {
+    setGrnLoading(true);
+    try {
+      // Load all GRNs regardless of status so user can always see available receipts
+      const response = await apiService.getGRNs();
+      const data =
+        (response as { data?: GRNHeaderForInvoice[] })?.data ??
+        (Array.isArray(response) ? response : []);
+
+      const mapped: GRNHeaderForInvoice[] = data.map((grn: GRNHeaderForInvoice & { [key: string]: unknown }) => ({
+        receipt_id: grn.receipt_id,
+        receipt_number: grn.receipt_number,
+        header_id: grn.header_id,
+        po_number: grn.po_number,
+        supplier_id: grn.supplier_id,
+        supplier_site_id: grn.supplier_site_id,
+        supplier_name: grn.supplier_name,
+        currency_code: grn.currency_code,
+        exchange_rate:
+          typeof grn.exchange_rate === "number"
+            ? grn.exchange_rate
+            : parseFloat(String(grn.exchange_rate ?? "1")) || 1,
+        total_amount:
+          typeof grn.total_amount === "number"
+            ? grn.total_amount
+            : parseFloat(String(grn.total_amount ?? "0")) || 0,
+      }));
+
+      setGrns(mapped);
+
+      console.log("GRNs loaded for AP Invoice:", {
+        total: mapped.length,
+        sample: mapped[0]
+          ? {
+              receipt_id: mapped[0].receipt_id,
+              receipt_number: mapped[0].receipt_number,
+              po_number: mapped[0].po_number,
+              supplier_name: mapped[0].supplier_name,
+            }
+          : null,
+      });
+    } catch (error) {
+      console.error("Error loading GRNs for AP Invoice:", error);
+    } finally {
+      setGrnLoading(false);
+    }
+  };
 
   // Auto-generate invoice number when creating a new invoice
   useEffect(() => {
@@ -179,6 +260,70 @@ export const APInvoiceForm = ({ onClose, onSuccess, suppliers, invoiceToEdit }: 
       });
     }
   }, [invoiceToEdit]);
+
+  // Sync Due Date when Payment Terms or Invoice Date changes
+  useEffect(() => {
+    // Skip if due_date was just manually changed by user
+    if (lastChangedField.current === 'due_date') {
+      // Reset flag after a delay to allow second useEffect to process
+      setTimeout(() => {
+        lastChangedField.current = null;
+      }, 100);
+      return;
+    }
+    
+    // Only auto-calculate due_date if invoice_date and payment_terms_id are valid
+    if (formData.invoice_date && formData.payment_terms_id > 0) {
+      const invoiceDate = new Date(formData.invoice_date);
+      const dueDate = new Date(invoiceDate);
+      dueDate.setDate(dueDate.getDate() + formData.payment_terms_id);
+      
+      const calculatedDueDate = dueDate.toISOString().split('T')[0];
+      
+      // Only update if the calculated due date is different from current
+      if (calculatedDueDate !== formData.due_date) {
+        setFormData(prev => ({ ...prev, due_date: calculatedDueDate }));
+      }
+    }
+    
+    // Reset flag after processing (for payment_terms or invoice_date changes)
+    if (lastChangedField.current === 'payment_terms' || lastChangedField.current === 'invoice_date') {
+      setTimeout(() => {
+        lastChangedField.current = null;
+      }, 100);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.invoice_date, formData.payment_terms_id]);
+
+  // Sync Payment Terms when Due Date changes
+  useEffect(() => {
+    // Only auto-calculate payment_terms if due_date was manually changed by user
+    const wasDueDateChanged = lastChangedField.current === 'due_date';
+    
+    if (!wasDueDateChanged) {
+      return;
+    }
+    
+    if (formData.invoice_date && formData.due_date) {
+      const invoiceDate = new Date(formData.invoice_date);
+      const dueDate = new Date(formData.due_date);
+      
+      // Calculate difference in days
+      const diffTime = dueDate.getTime() - invoiceDate.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+      
+      // Only update if the calculated payment terms is different and positive
+      if (diffDays > 0 && diffDays !== formData.payment_terms_id) {
+        setFormData(prev => ({ ...prev, payment_terms_id: diffDays }));
+      }
+    }
+    
+    // Reset flag after processing
+    setTimeout(() => {
+      lastChangedField.current = null;
+    }, 100);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.due_date]);
 
   const loadTaxRates = async () => {
     try {
@@ -343,6 +488,7 @@ export const APInvoiceForm = ({ onClose, onSuccess, suppliers, invoiceToEdit }: 
       setFormData({
         supplier_id: invoiceToEdit.supplier_id.toString(),
         bill_to_site_id: invoiceToEdit.bill_to_site_id.toString(),
+        receipt_id: invoiceToEdit.receipt_id ? invoiceToEdit.receipt_id.toString() : "",
         invoice_number: invoiceToEdit.invoice_number || '',
         invoice_date: formatDateForInput(invoiceToEdit.invoice_date),
         due_date: formatDateForInput(invoiceToEdit.due_date),
@@ -589,6 +735,7 @@ export const APInvoiceForm = ({ onClose, onSuccess, suppliers, invoiceToEdit }: 
       const invoiceData = {
         supplier_id: parseInt(formData.supplier_id),
         bill_to_site_id: parseInt(formData.bill_to_site_id), // Backend expects bill_to_site_id
+        receipt_id: formData.receipt_id ? parseInt(formData.receipt_id) : null,
         invoice_number: formData.invoice_number,
         invoice_date: formData.invoice_date,
         due_date: formData.due_date,
@@ -719,6 +866,87 @@ export const APInvoiceForm = ({ onClose, onSuccess, suppliers, invoiceToEdit }: 
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="grn">Goods Receipt (GRN)</Label>
+                <Select
+                  value={formData.receipt_id}
+                  onValueChange={async (value) => {
+                    setFormData(prev => ({ ...prev, receipt_id: value }));
+                    const selected = grns.find(g => g.receipt_id.toString() === value);
+                    if (!selected) return;
+
+                    // Auto-fill supplier, currency, rate
+                    if (selected.supplier_id) {
+                      await handleSupplierChange(selected.supplier_id.toString());
+                    }
+
+                    setFormData(prev => ({
+                      ...prev,
+                      supplier_id: selected.supplier_id ? selected.supplier_id.toString() : prev.supplier_id,
+                      currency_code: selected.currency_code || prev.currency_code,
+                      exchange_rate: selected.exchange_rate || prev.exchange_rate
+                    }));
+
+                    // If supplier site present, set it after sites load
+                    if (selected.supplier_id) {
+                      await fetchSupplierSites(selected.supplier_id);
+                      if (selected.supplier_site_id) {
+                        setFormData(prev => ({
+                          ...prev,
+                          bill_to_site_id: selected.supplier_site_id!.toString()
+                        }));
+                      }
+                    }
+
+                    // Fetch GRN lines and populate invoice lines
+                    try {
+                      const grn = await apiService.getGRN(parseInt(value));
+                      const grnLines: GRNLineForInvoice[] = Array.isArray(grn.lines) ? grn.lines : [];
+                      const invoiceLines: InvoiceLine[] = grnLines
+                        .map((line, index) => {
+                          const qty = Number(line.quantity_accepted) || 0;
+                          if (qty <= 0) return null;
+                          const unitPrice = Number(line.unit_price) || 0;
+                          const baseAmount = Number(line.line_amount) || qty * unitPrice;
+                          const taxRate = line.tax_rate !== undefined ? Number(line.tax_rate) || 0 : 0;
+                          const taxAmount = line.tax_amount !== undefined ? Number(line.tax_amount) || 0 : baseAmount * (taxRate / 100);
+                          return {
+                            line_number: index + 1,
+                            item_code: line.item_code,
+                            item_name: line.item_name || '',
+                            description: line.description || '',
+                            quantity: qty,
+                            unit_price: unitPrice,
+                            line_amount: baseAmount,
+                            tax_rate: taxRate,
+                            tax_amount: taxAmount
+                          } as InvoiceLine;
+                        })
+                        .filter((l): l is InvoiceLine => l !== null);
+
+                      if (invoiceLines.length > 0) {
+                        setLines(invoiceLines);
+                      }
+                    } catch (error) {
+                      console.error('Error loading GRN lines for invoice:', error);
+                      toast.error('Failed to load GRN lines for invoice');
+                    }
+                  }}
+                  disabled={grnLoading || !!invoiceToEdit}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={grnLoading ? "Loading GRNs..." : "Select GRN"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {grns.map(grn => (
+                      <SelectItem key={grn.receipt_id} value={grn.receipt_id.toString()}>
+                        {grn.receipt_number} {grn.po_number ? `- ${grn.po_number}` : ''} {grn.supplier_name ? `- ${grn.supplier_name}` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="bill_to_site">Billing Site *</Label>
                 <Select value={formData.bill_to_site_id} onValueChange={(value) => setFormData(prev => ({ ...prev, bill_to_site_id: value }))}>
                   <SelectTrigger>
@@ -764,7 +992,10 @@ export const APInvoiceForm = ({ onClose, onSuccess, suppliers, invoiceToEdit }: 
                   id="invoice_date"
                   type="date"
                   value={formData.invoice_date}
-                  onChange={(e) => setFormData(prev => ({ ...prev, invoice_date: e.target.value }))}
+                  onChange={(e) => {
+                    lastChangedField.current = 'invoice_date';
+                    setFormData(prev => ({ ...prev, invoice_date: e.target.value }));
+                  }}
                   required
                 />
               </div>
@@ -775,7 +1006,10 @@ export const APInvoiceForm = ({ onClose, onSuccess, suppliers, invoiceToEdit }: 
                   id="due_date"
                   type="date"
                   value={formData.due_date}
-                  onChange={(e) => setFormData(prev => ({ ...prev, due_date: e.target.value }))}
+                  onChange={(e) => {
+                    lastChangedField.current = 'due_date';
+                    setFormData(prev => ({ ...prev, due_date: e.target.value }));
+                  }}
                   required
                 />
               </div>
@@ -785,8 +1019,13 @@ export const APInvoiceForm = ({ onClose, onSuccess, suppliers, invoiceToEdit }: 
                 <Input
                   id="payment_terms"
                   type="number"
+                  min="0"
                   value={formData.payment_terms_id}
-                  onChange={(e) => setFormData(prev => ({ ...prev, payment_terms_id: parseInt(e.target.value) }))}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value) || 0;
+                    lastChangedField.current = 'payment_terms';
+                    setFormData(prev => ({ ...prev, payment_terms_id: value }));
+                  }}
                   placeholder="30"
                 />
               </div>
