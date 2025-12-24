@@ -40,7 +40,17 @@ import TaxRegimeForm from "@/components/forms/TaxRegimeForm";
 import TaxRatesForm from "@/components/forms/TaxRatesForm";
 import CompanySetup from "./CompanySetup";
 
-const API_BASE_URL = 'http://localhost:5000/api';
+// Use environment variable for API base URL, fallback based on environment
+// Production backend URL
+const PRODUCTION_BACKEND = 'https://skyblue-snake-491948.hostingersite.com';
+const PRODUCTION_API_BASE = `${PRODUCTION_BACKEND}/api`;
+
+// Determine if we're in production (Hostinger deployment)
+const isProduction = import.meta.env.PROD || window.location.hostname.includes('hostingersite.com');
+
+// Use env var if set, otherwise use production URL if in production, else localhost
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+  (isProduction ? PRODUCTION_API_BASE : 'http://localhost:5000/api');
 
 type SettingsTab = {
   value: string;
@@ -273,7 +283,11 @@ const Settings = () => {
             setProfileImage(user.profile_image);
           } else {
             // Legacy: if it's a file path, try to load it (for backward compatibility)
-            setProfileImage(`http://localhost:5000${user.profile_image}`);
+            // Handle profile image - if it's already a full URL, use it; otherwise construct it
+            const imageUrl = user.profile_image?.startsWith('http') 
+              ? user.profile_image 
+              : `${API_BASE_URL.replace('/api', '')}${user.profile_image}`;
+            setProfileImage(imageUrl);
           }
         } else {
           setProfileImage(null);

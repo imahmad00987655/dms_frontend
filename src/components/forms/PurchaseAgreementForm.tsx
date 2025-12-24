@@ -165,7 +165,13 @@ export const PurchaseAgreementForm: React.FC<PurchaseAgreementFormProps> = ({
       if (formData.supplier_id) {
         try {
           // Fetch sites directly from the supplier using supplier_id
-          const response = await fetch(`http://localhost:5000/api/customer-supplier/suppliers/${formData.supplier_id}/sites`);
+          // Use apiService baseURL or construct from environment
+          const PRODUCTION_BACKEND = 'https://skyblue-snake-491948.hostingersite.com';
+          const PRODUCTION_API_BASE = `${PRODUCTION_BACKEND}/api`;
+          const isProduction = import.meta.env.PROD || window.location.hostname.includes('hostingersite.com');
+          const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+            (isProduction ? PRODUCTION_API_BASE : 'http://localhost:5000/api');
+          const response = await fetch(`${API_BASE_URL}/customer-supplier/suppliers/${formData.supplier_id}/sites`);
           if (response.ok) {
             const sitesData = await response.json();
             setSelectedSupplierSites(sitesData.data || []);
@@ -220,7 +226,13 @@ export const PurchaseAgreementForm: React.FC<PurchaseAgreementFormProps> = ({
         const fetchSitesForExistingAgreement = async () => {
           try {
             console.log('🔍 Fetching sites for existing agreement, supplier_id:', agreement.supplier_id);
-            const response = await fetch(`http://localhost:5000/api/customer-supplier/suppliers/${agreement.supplier_id}/sites`);
+            // Use apiService baseURL or construct from environment
+            const PRODUCTION_BACKEND = 'https://skyblue-snake-491948.hostingersite.com';
+            const PRODUCTION_API_BASE = `${PRODUCTION_BACKEND}/api`;
+            const isProduction = import.meta.env.PROD || window.location.hostname.includes('hostingersite.com');
+            const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+              (isProduction ? PRODUCTION_API_BASE : 'http://localhost:5000/api');
+            const response = await fetch(`${API_BASE_URL}/customer-supplier/suppliers/${agreement.supplier_id}/sites`);
             if (response.ok) {
               const sitesData = await response.json();
               console.log('🔍 Sites data received:', sitesData);

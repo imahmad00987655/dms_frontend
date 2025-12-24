@@ -4,6 +4,13 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 
+// Use environment variable for API base URL, fallback based on environment
+const PRODUCTION_BACKEND = 'https://skyblue-snake-491948.hostingersite.com';
+const PRODUCTION_API_BASE = `${PRODUCTION_BACKEND}/api`;
+const isProduction = import.meta.env.PROD || window.location.hostname.includes('hostingersite.com');
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+  (isProduction ? PRODUCTION_API_BASE : 'http://localhost:5000/api');
+
 // Types
 interface CompanyLocation {
   id: number;
@@ -104,7 +111,7 @@ export const LocationForm: React.FC<LocationFormProps> = ({
 
       if (locationToEdit) {
         // Update existing location
-        const response = await fetch(`http://localhost:5000/api/company-locations/${locationToEdit.id}`, {
+        const response = await fetch(`${API_BASE_URL}/company-locations/${locationToEdit.id}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -120,7 +127,7 @@ export const LocationForm: React.FC<LocationFormProps> = ({
         toast.success('Location updated successfully');
       } else {
         // Create new location
-        const response = await fetch('http://localhost:5000/api/company-locations', {
+        const response = await fetch(`${API_BASE_URL}/company-locations`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

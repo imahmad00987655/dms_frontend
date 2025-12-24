@@ -102,7 +102,12 @@ interface CoAData {
   created_at: string;
 }
 
-const API_BASE_URL = 'http://localhost:5000/api';
+// Use environment variable for API base URL, fallback based on environment
+const PRODUCTION_BACKEND = 'https://skyblue-snake-491948.hostingersite.com';
+const PRODUCTION_API_BASE = `${PRODUCTION_BACKEND}/api`;
+const isProduction = import.meta.env.PROD || window.location.hostname.includes('hostingersite.com');
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+  (isProduction ? PRODUCTION_API_BASE : 'http://localhost:5000/api');
 
 interface ChartOfAccountSetupRef {
   activeSection: 'structure-definition' | 'instances-assignments' | 'header-assignments' | null;
