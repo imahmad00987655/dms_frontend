@@ -1,6 +1,18 @@
-// Use environment variable for API base URL, fallback to localhost for development
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
-const API_ROOT_URL = import.meta.env.VITE_API_ROOT_URL || import.meta.env.VITE_API_BASE_URL?.replace(/\/api$/, '') || 'http://localhost:5000';
+// Use environment variable for API base URL, fallback based on environment
+// Production backend URL
+const PRODUCTION_BACKEND = 'https://skyblue-snake-491948.hostingersite.com';
+const PRODUCTION_API_BASE = `${PRODUCTION_BACKEND}/api`;
+
+// Determine if we're in production (Hostinger deployment)
+const isProduction = import.meta.env.PROD || window.location.hostname.includes('hostingersite.com');
+
+// Use env var if set, otherwise use production URL if in production, else localhost
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+  (isProduction ? PRODUCTION_API_BASE : 'http://localhost:5000/api');
+
+const API_ROOT_URL = import.meta.env.VITE_API_ROOT_URL || 
+  import.meta.env.VITE_API_BASE_URL?.replace(/\/api$/, '') || 
+  (isProduction ? PRODUCTION_BACKEND : 'http://localhost:5000');
 
 class ApiService {
   constructor() {
