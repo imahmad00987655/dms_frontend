@@ -38,19 +38,30 @@ const ForgotPassword = () => {
       
       console.log('✅ FORGOT PASSWORD: API Response received');
       console.log('  Response:', response);
+      console.log('  Response type:', typeof response);
+      console.log('  Response keys:', response ? Object.keys(response) : 'null');
+      console.log('  emailSent:', response?.emailSent);
+      console.log('  emailError:', response?.emailError);
       
       // Check email status from response
       if (response && typeof response === 'object') {
-        if (response.emailSent === false) {
-          console.error('❌ FORGOT PASSWORD: Email NOT sent!');
-          console.error('  Email Error:', response.emailError || 'Unknown error');
-          console.error('  Full Response:', response);
-        } else if (response.emailSent === true) {
-          console.log('✅ FORGOT PASSWORD: Email sent successfully!');
+        if ('emailSent' in response) {
+          if (response.emailSent === false) {
+            console.error('❌ FORGOT PASSWORD: Email NOT sent!');
+            console.error('  Email Error:', response.emailError || 'Unknown error');
+            console.error('  Full Response:', JSON.stringify(response, null, 2));
+          } else if (response.emailSent === true) {
+            console.log('✅ FORGOT PASSWORD: Email sent successfully!');
+          }
         } else {
-          console.warn('⚠️ FORGOT PASSWORD: Email status not in response');
-          console.warn('  Response:', response);
+          console.warn('⚠️ FORGOT PASSWORD: emailSent field missing in response!');
+          console.warn('  This means backend might not be updated. Check backend deployment.');
+          console.warn('  Available fields:', Object.keys(response));
+          console.warn('  Full Response:', JSON.stringify(response, null, 2));
         }
+      } else {
+        console.error('❌ FORGOT PASSWORD: Invalid response format');
+        console.error('  Response:', response);
       }
       console.log('═══════════════════════════════════════════════════════════');
       
