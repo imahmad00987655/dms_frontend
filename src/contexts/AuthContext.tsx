@@ -90,7 +90,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const signup = async (userData: any) => {
     try {
-      await apiService.signup(userData);
+      const response = await apiService.signup(userData);
+      return response; // Return response so we can check emailSent
     } catch (error) {
       throw error;
     }
@@ -98,7 +99,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const verifyOTP = async (email: string, otp: string) => {
     try {
-      await apiService.verifyOTP(email, otp);
+      const response = await apiService.verifyOTP(email, otp);
+      return response; // Return response so we can check welcomeEmailSent
     } catch (error) {
       throw error;
     }
@@ -106,7 +108,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const forgotPassword = async (email: string) => {
     try {
-      await apiService.forgotPassword(email);
+      const response = await apiService.forgotPassword(email);
+      return response; // Return response so we can check emailSent
     } catch (error) {
       throw error;
     }

@@ -96,15 +96,44 @@ const Signup = () => {
         password: formData.password
       };
 
-      await signup(signupData);
+      console.log('═══════════════════════════════════════════════════════════');
+      console.log('📧 SIGNUP: Sending request...');
+      console.log('  Email:', formData.email);
+      console.log('═══════════════════════════════════════════════════════════');
+
+      const response = await signup(signupData);
+      
+      console.log('✅ SIGNUP: API Response received');
+      console.log('  Response:', response);
+      
+      // Check email status from response
+      if (response && typeof response === 'object') {
+        if (response.emailSent === false) {
+          console.error('❌ SIGNUP: Email NOT sent!');
+          console.error('  Email Error:', response.emailError || 'Unknown error');
+          console.error('  Full Response:', response);
+        } else if (response.emailSent === true) {
+          console.log('✅ SIGNUP: Email sent successfully!');
+        } else {
+          console.warn('⚠️ SIGNUP: Email status not in response');
+          console.warn('  Response:', response);
+        }
+      }
+      console.log('═══════════════════════════════════════════════════════════');
       
       toast({
         title: "Registration Successful",
-        description: "Please check your email for verification code.",
+        description: response?.emailSent === false 
+          ? `Account created but email failed: ${response.emailError || 'Email service unavailable'}`
+          : "Please check your email for verification code.",
       });
       setStep('otp');
     } catch (error: any) {
-      console.error("Signup error:", error);
+      console.error('═══════════════════════════════════════════════════════════');
+      console.error('❌ SIGNUP: Error occurred');
+      console.error('  Error:', error);
+      console.error('  Error message:', error.message);
+      console.error('═══════════════════════════════════════════════════════════');
       
       toast({
         title: "Registration Failed",
@@ -130,7 +159,27 @@ const Signup = () => {
     setIsLoading(true);
     
     try {
-      await verifyOTP(formData.email, otp);
+      console.log('═══════════════════════════════════════════════════════════');
+      console.log('📧 VERIFY OTP: Sending request...');
+      console.log('  Email:', formData.email);
+      console.log('  OTP:', otp);
+      console.log('═══════════════════════════════════════════════════════════');
+
+      const response = await verifyOTP(formData.email, otp);
+      
+      console.log('✅ VERIFY OTP: API Response received');
+      console.log('  Response:', response);
+      
+      // Check welcome email status from response
+      if (response && typeof response === 'object') {
+        if (response.welcomeEmailSent === false) {
+          console.warn('⚠️ VERIFY OTP: Welcome email NOT sent!');
+          console.warn('  Email Error:', response.welcomeEmailError || 'Unknown error');
+        } else if (response.welcomeEmailSent === true) {
+          console.log('✅ VERIFY OTP: Welcome email sent successfully!');
+        }
+      }
+      console.log('═══════════════════════════════════════════════════════════');
       
       setStep('success');
       toast({
@@ -138,7 +187,11 @@ const Signup = () => {
         description: "Your account has been created successfully!",
       });
     } catch (error: any) {
-      console.error("OTP verification error:", error);
+      console.error('═══════════════════════════════════════════════════════════');
+      console.error('❌ VERIFY OTP: Error occurred');
+      console.error('  Error:', error);
+      console.error('  Error message:', error.message);
+      console.error('═══════════════════════════════════════════════════════════');
       
       toast({
         title: "Verification Failed",

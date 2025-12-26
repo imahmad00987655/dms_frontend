@@ -29,15 +29,44 @@ const ForgotPassword = () => {
     setIsLoading(true);
     
     try {
-      await forgotPassword(email);
+      console.log('═══════════════════════════════════════════════════════════');
+      console.log('📧 FORGOT PASSWORD: Sending request...');
+      console.log('  Email:', email);
+      console.log('═══════════════════════════════════════════════════════════');
+      
+      const response = await forgotPassword(email);
+      
+      console.log('✅ FORGOT PASSWORD: API Response received');
+      console.log('  Response:', response);
+      
+      // Check email status from response
+      if (response && typeof response === 'object') {
+        if (response.emailSent === false) {
+          console.error('❌ FORGOT PASSWORD: Email NOT sent!');
+          console.error('  Email Error:', response.emailError || 'Unknown error');
+          console.error('  Full Response:', response);
+        } else if (response.emailSent === true) {
+          console.log('✅ FORGOT PASSWORD: Email sent successfully!');
+        } else {
+          console.warn('⚠️ FORGOT PASSWORD: Email status not in response');
+          console.warn('  Response:', response);
+        }
+      }
+      console.log('═══════════════════════════════════════════════════════════');
       
       toast({
         title: "Reset Code Sent",
-        description: "If the email exists, a reset code has been sent.",
+        description: response?.emailSent === false 
+          ? `Code generated but email failed: ${response.emailError || 'Email service unavailable'}`
+          : "If the email exists, a reset code has been sent.",
       });
       setStep('otp');
     } catch (error: any) {
-      console.error("Forgot password error:", error);
+      console.error('═══════════════════════════════════════════════════════════');
+      console.error('❌ FORGOT PASSWORD: Error occurred');
+      console.error('  Error:', error);
+      console.error('  Error message:', error.message);
+      console.error('═══════════════════════════════════════════════════════════');
       
       toast({
         title: "Request Failed",
