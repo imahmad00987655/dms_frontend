@@ -1098,7 +1098,7 @@ export const APInvoiceForm = ({ onClose, onSuccess, suppliers, invoiceToEdit }: 
                             )}
                           >
                             <span className="truncate flex-1 text-left">{line.item_code || "Search item..."}</span>
-                            <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50 flex-shrink-0" />
+                            <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-[300px] p-0">
